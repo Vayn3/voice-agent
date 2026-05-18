@@ -41,9 +41,10 @@ export default function TeacherPage() {
 
   async function handleCreateCourse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setSaving(true);
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       const course = await createCourse({
         name: String(form.get("name") || ""),
@@ -51,7 +52,7 @@ export default function TeacherPage() {
         assignment_name: String(form.get("assignment_name") || ""),
         assignment_requirements: String(form.get("assignment_requirements") || "")
       });
-      event.currentTarget.reset();
+      formElement.reset();
       await refreshCourses();
       setSelectedCourseId(course.id);
       setMessage("课程已创建。");
