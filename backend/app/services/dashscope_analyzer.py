@@ -47,6 +47,16 @@ def analyze_report_file(
     )
 
     content = completion.choices[0].message.content or "{}"
+    print(
+        "\n========== DashScope model raw response ==========\n"
+        f"model: {completion.model}\n"
+        f"uploaded_file_id: {file_object.id}\n"
+        f"source_filename: {file_path.name}\n"
+        "content:\n"
+        f"{content}\n"
+        "==================================================\n",
+        flush=True,
+    )
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:

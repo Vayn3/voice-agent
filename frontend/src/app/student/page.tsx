@@ -19,6 +19,10 @@ export default function StudentPage() {
     [courses, selectedCourseId]
   );
   const result = session?.result;
+  const isAnalyzing =
+    submitting ||
+    session?.session.status === "pending" ||
+    session?.session.status === "processing";
 
   useEffect(() => {
     listCourses()
@@ -149,8 +153,9 @@ export default function StudentPage() {
             <small>支持 PDF、Word、Markdown、TXT</small>
           </label>
 
-          <button className="primary-button" type="submit" disabled={submitting || !courses.length}>
-            {submitting ? "提交中..." : "提交报告并生成问题"}
+          <button className="primary-button" type="submit" disabled={isAnalyzing || !courses.length}>
+            {isAnalyzing && <span className="spinner" aria-hidden="true" />}
+            {isAnalyzing ? "正在分析报告..." : "提交报告并生成问题"}
           </button>
         </form>
 
