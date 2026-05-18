@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.env
+data/uploads/
+data/config.json
+data/business.json
+logs/
+frontend/.next/
+frontend/node_modules/
