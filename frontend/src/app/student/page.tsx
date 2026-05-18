@@ -54,6 +54,7 @@ export default function StudentPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formData = new FormData(event.currentTarget);
     setMessage("");
 
     if (!selectedCourseId) {
@@ -71,7 +72,6 @@ export default function StudentPage() {
     setSubmitting(true);
     setStatus("正在上传报告");
     try {
-      const formData = new FormData(event.currentTarget);
       const payload = await createCourseSession(selectedCourseId, formData);
       setSession(payload);
       setStatus("已提交，等待分析");
