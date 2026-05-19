@@ -2,17 +2,20 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { createCourse, getCourse, getSession, listCourses } from "@/lib/api";
-import type { AnalysisResponse, CourseDetail, CourseSummary, SessionSummary } from "@/types/api";
+import { hasRole, readCurrentUser } from "@/lib/auth";
+import type { AnalysisResponse, CourseDetail, CourseSummary, SessionSummary, User } from "@/types/api";
 
 export default function TeacherPage() {
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [selectedReport, setSelectedReport] = useState<AnalysisResponse | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    setCurrentUser(readCurrentUser());
     refreshCourses();
   }, []);
 
@@ -48,7 +51,8 @@ export default function TeacherPage() {
     try {
       const course = await createCourse({
         name: String(form.get("name") || ""),
-        teacher_name: String(form.get("teacher_name") || ""),
+        teacher_name: String(form.get("teacher_name") || currentUser?.display_name || ""),
+        teacher_user_id: currentUser?.id || null,
         assignment_name: String(form.get("assignment_name") || ""),
         assignment_requirements: String(form.get("assignment_requirements") || "")
       });
@@ -85,6 +89,10 @@ export default function TeacherPage() {
           </p>
         )}
 
+        {!hasRole(currentUser, ["teacher", "admin"]) && (
+          <p className="message error">请先使用老师或管理员账号登录后再创建和查看课程。</p>
+        )}
+
         <form className="form" onSubmit={handleCreateCourse}>
           <div className="grid">
             <label>
@@ -93,7 +101,7 @@ export default function TeacherPage() {
             </label>
             <label>
               老师姓名
-              <input name="teacher_name" placeholder="例如：王老师" />
+              <input name="teacher_name" placeholder="例如：王老师" defaultValue={currentUser?.display_name || ""} />
             </label>
             <label>
               作业名称
@@ -109,7 +117,7 @@ export default function TeacherPage() {
               rows={6}
             />
           </label>
-          <button className="primary-button" type="submit" disabled={saving}>
+          <button className="primary-button" type="submit" disabled={saving || !hasRole(currentUser, ["teacher", "admin"])}>
             {saving ? "创建中..." : "创建课程"}
           </button>
         </form>

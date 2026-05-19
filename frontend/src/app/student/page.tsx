@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { checkConfig, createCourseSession, getSession, listCourses } from "@/lib/api";
-import type { AnalysisResponse, CourseSummary } from "@/types/api";
+import { hasRole, readCurrentUser } from "@/lib/auth";
+import type { AnalysisResponse, CourseSummary, User } from "@/types/api";
 
 export default function StudentPage() {
   const [courses, setCourses] = useState<CourseSummary[]>([]);
@@ -13,6 +14,7 @@ export default function StudentPage() {
   const [status, setStatus] = useState("等待提交");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const selectedCourse = useMemo(
     () => courses.find((course) => course.id === selectedCourseId),
@@ -25,6 +27,7 @@ export default function StudentPage() {
     session?.session.status === "processing";
 
   useEffect(() => {
+    setCurrentUser(readCurrentUser());
     listCourses()
       .then((payload) => {
         setCourses(payload);
@@ -59,6 +62,9 @@ export default function StudentPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
+    if (currentUser?.id) {
+      formData.set("student_user_id", currentUser.id);
+    }
     setMessage("");
 
     if (!selectedCourseId) {
@@ -104,6 +110,10 @@ export default function StudentPage() {
           </p>
         )}
 
+        {!hasRole(currentUser, ["student", "admin"]) && (
+          <p className="message error">请先使用学生或管理员账号登录后再提交报告。</p>
+        )}
+
         {!courses.length && (
           <p className="message">当前还没有课程，请老师先在老师端创建课程。</p>
         )}
@@ -126,7 +136,7 @@ export default function StudentPage() {
             </label>
             <label>
               学生姓名
-              <input name="student_name" placeholder="例如：张三" required />
+              <input name="student_name" placeholder="例如：张三" defaultValue={currentUser?.display_name || ""} required />
             </label>
           </div>
 
@@ -153,7 +163,11 @@ export default function StudentPage() {
             <small>支持 PDF、Word、Markdown、TXT</small>
           </label>
 
-          <button className="primary-button" type="submit" disabled={isAnalyzing || !courses.length}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isAnalyzing || !courses.length || !hasRole(currentUser, ["student", "admin"])}
+          >
             {isAnalyzing && <span className="spinner" aria-hidden="true" />}
             {isAnalyzing ? "正在分析报告..." : "提交报告并生成问题"}
           </button>

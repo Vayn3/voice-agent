@@ -16,9 +16,28 @@ class AnalysisStatus(str, Enum):
     failed = "failed"
 
 
+class UserRole(str, Enum):
+    admin = "admin"
+    teacher = "teacher"
+    student = "student"
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    role: UserRole
+
+
 class ReportSession(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     course_id: str | None = None
+    student_user_id: str | None = None
     student_name: str
     course_name: str
     assignment_name: str
@@ -34,6 +53,7 @@ class ReportSession(BaseModel):
 class SessionSummary(BaseModel):
     id: str
     course_id: str | None = None
+    student_user_id: str | None = None
     student_name: str
     course_name: str
     assignment_name: str
@@ -70,6 +90,7 @@ class ConfigCheckResponse(BaseModel):
 class CourseCreate(BaseModel):
     name: str
     teacher_name: str = ""
+    teacher_user_id: str | None = None
     assignment_name: str
     assignment_requirements: str
 
@@ -78,6 +99,7 @@ class Course(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:8])
     name: str
     teacher_name: str = ""
+    teacher_user_id: str | None = None
     assignment_name: str
     assignment_requirements: str
     created_at: datetime = Field(default_factory=datetime.now)
@@ -87,6 +109,7 @@ class CourseSummary(BaseModel):
     id: str
     name: str
     teacher_name: str
+    teacher_user_id: str | None = None
     assignment_name: str
     assignment_requirements: str
     created_at: datetime
@@ -96,3 +119,18 @@ class CourseSummary(BaseModel):
 class CourseDetail(BaseModel):
     course: CourseSummary
     submissions: list[SessionSummary]
+
+
+class QARecordCreate(BaseModel):
+    question: str
+    answer: str
+    created_by_user_id: str | None = None
+
+
+class QARecord(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    report_id: str
+    question: str
+    answer: str
+    created_by_user_id: str | None = None
+    created_at: datetime = Field(default_factory=datetime.now)

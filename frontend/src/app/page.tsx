@@ -12,6 +12,11 @@ export default function HomePage() {
       </div>
 
       <div className="role-grid">
+        <Link className="role-card" href="/login">
+          <span>用户校验</span>
+          <strong>登录后进入对应界面</strong>
+          <p>系统会根据管理员、老师、学生角色进入不同工作区，后续可继续接入更严格的权限控制。</p>
+        </Link>
         <Link className="role-card" href="/teacher">
           <span>老师端</span>
           <strong>创建课程与查看报告总结</strong>

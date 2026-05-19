@@ -1,8 +1,17 @@
 export type AnalysisStatus = "pending" | "processing" | "completed" | "failed";
+export type UserRole = "admin" | "teacher" | "student";
+
+export type User = {
+  id: string;
+  username: string;
+  display_name: string;
+  role: UserRole;
+};
 
 export type SessionSummary = {
   id: string;
   course_id?: string | null;
+  student_user_id?: string | null;
   student_name: string;
   course_name: string;
   assignment_name: string;
@@ -57,6 +66,7 @@ export type CourseSummary = {
   id: string;
   name: string;
   teacher_name: string;
+  teacher_user_id?: string | null;
   assignment_name: string;
   assignment_requirements: string;
   created_at: string;
@@ -66,4 +76,13 @@ export type CourseSummary = {
 export type CourseDetail = {
   course: CourseSummary;
   submissions: SessionSummary[];
+};
+
+export type QARecord = {
+  id: string;
+  report_id: string;
+  question: string;
+  answer: string;
+  created_by_user_id?: string | null;
+  created_at: string;
 };

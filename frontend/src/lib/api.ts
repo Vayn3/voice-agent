@@ -3,7 +3,9 @@ import type {
   ConfigCheck,
   CourseDetail,
   CourseSummary,
-  SystemConfig
+  QARecord,
+  SystemConfig,
+  User
 } from "@/types/api";
 
 export const API_BASE =
@@ -20,6 +22,18 @@ async function parseResponse<T>(response: Response): Promise<T> {
 export async function getConfig(): Promise<SystemConfig> {
   const response = await fetch(`${API_BASE}/api/config`, { cache: "no-store" });
   return parseResponse<SystemConfig>(response);
+}
+
+export async function login(input: {
+  username: string;
+  password: string;
+}): Promise<User> {
+  const response = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return parseResponse<User>(response);
 }
 
 export async function saveConfig(input: {
@@ -65,6 +79,7 @@ export async function listCourses(): Promise<CourseSummary[]> {
 export async function createCourse(input: {
   name: string;
   teacher_name: string;
+  teacher_user_id?: string | null;
   assignment_name: string;
   assignment_requirements: string;
 }): Promise<CourseSummary> {
@@ -92,4 +107,23 @@ export async function createCourseSession(
     body: formData
   });
   return parseResponse<AnalysisResponse>(response);
+}
+
+export async function listQARecords(sessionId: string): Promise<QARecord[]> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/qa-records`, {
+    cache: "no-store"
+  });
+  return parseResponse<QARecord[]>(response);
+}
+
+export async function createQARecord(
+  sessionId: string,
+  input: { question: string; answer: string; created_by_user_id?: string | null }
+): Promise<QARecord> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/qa-records`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return parseResponse<QARecord>(response);
 }

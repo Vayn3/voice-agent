@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.database import init_database
 from backend.app.models import (
     AnalysisResponse,
     ConfigCheckResponse,
@@ -13,10 +14,14 @@ from backend.app.models import (
     CourseCreate,
     CourseDetail,
     CourseSummary,
+    QARecord,
+    QARecordCreate,
     ReportSession,
     SessionSummary,
     SystemConfigIn,
     SystemConfigOut,
+    UserLogin,
+    UserOut,
 )
 from backend.app.services.config_store import MissingConfigError, config_store
 from backend.app.services.dashscope_analyzer import analyze_report_file
@@ -43,6 +48,7 @@ def _summary(session: ReportSession) -> SessionSummary:
     return SessionSummary(
         id=session.id,
         course_id=session.course_id,
+        student_user_id=session.student_user_id,
         student_name=session.student_name,
         course_name=session.course_name,
         assignment_name=session.assignment_name,
@@ -59,6 +65,7 @@ def _course_summary(course: Course) -> CourseSummary:
         id=course.id,
         name=course.name,
         teacher_name=course.teacher_name,
+        teacher_user_id=course.teacher_user_id,
         assignment_name=course.assignment_name,
         assignment_requirements=course.assignment_requirements,
         created_at=course.created_at,
@@ -87,9 +94,22 @@ def _analyze_in_background(session_id: str) -> None:
         store.mark_failed(session_id, str(exc))
 
 
+@app.on_event("startup")
+def startup() -> None:
+    init_database()
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/auth/login", response_model=UserOut)
+def login(payload: UserLogin) -> UserOut:
+    user = store.authenticate_user(payload.username, payload.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户名或密码错误。")
+    return user
 
 
 @app.get("/api/config", response_model=SystemConfigOut)
@@ -124,6 +144,7 @@ def create_course(payload: CourseCreate) -> CourseSummary:
         Course(
             name=payload.name.strip(),
             teacher_name=payload.teacher_name.strip(),
+            teacher_user_id=payload.teacher_user_id,
             assignment_name=payload.assignment_name.strip(),
             assignment_requirements=payload.assignment_requirements.strip(),
         )
@@ -159,6 +180,7 @@ async def create_course_session(
     course_id: str,
     background_tasks: BackgroundTasks,
     student_name: str = Form(...),
+    student_user_id: str | None = Form(None),
     report_file: UploadFile = File(...),
 ) -> AnalysisResponse:
     course = store.get_course(course_id)
@@ -173,6 +195,7 @@ async def create_course_session(
         assignment_requirements=course.assignment_requirements,
         report_file=report_file,
         course_id=course.id,
+        student_user_id=student_user_id,
     )
 
 
@@ -183,6 +206,7 @@ async def create_session(
     course_name: str = Form(...),
     assignment_name: str = Form(...),
     assignment_requirements: str = Form(""),
+    student_user_id: str | None = Form(None),
     report_file: UploadFile = File(...),
 ) -> AnalysisResponse:
     return await _create_report_session(
@@ -192,6 +216,7 @@ async def create_session(
         assignment_name=assignment_name,
         assignment_requirements=assignment_requirements,
         report_file=report_file,
+        student_user_id=student_user_id,
     )
 
 
@@ -204,6 +229,7 @@ async def _create_report_session(
     assignment_requirements: str,
     report_file: UploadFile,
     course_id: str | None = None,
+    student_user_id: str | None = None,
 ) -> AnalysisResponse:
     try:
         config_store.require_private()
@@ -220,6 +246,7 @@ async def _create_report_session(
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     temp_session = ReportSession(
         course_id=course_id,
+        student_user_id=student_user_id,
         student_name=student_name.strip(),
         course_name=course_name.strip(),
         assignment_name=assignment_name.strip(),
@@ -249,3 +276,24 @@ def get_session(session_id: str) -> AnalysisResponse:
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     return AnalysisResponse(session=_summary(session), result=session.result)
+
+
+@app.get("/api/sessions/{session_id}/qa-records", response_model=list[QARecord])
+def list_qa_records(session_id: str) -> list[QARecord]:
+    if store.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return store.list_qa_records(session_id)
+
+
+@app.post("/api/sessions/{session_id}/qa-records", response_model=QARecord)
+def create_qa_record(session_id: str, payload: QARecordCreate) -> QARecord:
+    if store.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if not payload.question.strip() or not payload.answer.strip():
+        raise HTTPException(status_code=400, detail="问题和回答不能为空。")
+    return store.add_qa_record(
+        report_id=session_id,
+        question=payload.question,
+        answer=payload.answer,
+        user_id=payload.created_by_user_id,
+    )

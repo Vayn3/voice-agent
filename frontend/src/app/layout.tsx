@@ -23,6 +23,7 @@ export default function RootLayout({
             </Link>
             <nav>
               <Link href="/">入口</Link>
+              <Link href="/login">登录</Link>
               <Link href="/teacher">老师端</Link>
               <Link href="/student">学生端</Link>
               <Link href="/config">系统配置</Link>
