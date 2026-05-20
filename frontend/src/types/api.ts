@@ -20,6 +20,7 @@ export type SessionSummary = {
   created_at: string;
   status: AnalysisStatus;
   error?: string | null;
+  voice_qa_summary_ready: boolean;
 };
 
 export type AnalysisResponse = {
@@ -35,6 +36,7 @@ export type AnalysisResult = {
   };
   question_plan?: QuestionPlanItem[];
   voice_qa_prompt?: string;
+  voice_qa_summary?: string;
   teacher_attention?: string[];
   coverage_threshold?: Record<string, unknown>;
   _meta?: Record<string, unknown>;
@@ -55,6 +57,10 @@ export type SystemConfig = {
   dashscope_api_key_masked: string;
   dashscope_base_url: string;
   dashscope_text_model: string;
+  realtime_configured: boolean;
+  volc_realtime_app_id_masked: string;
+  volc_realtime_access_key_masked: string;
+  volc_realtime_app_key_masked: string;
 };
 
 export type ConfigCheck = {
@@ -71,11 +77,19 @@ export type CourseSummary = {
   assignment_requirements: string;
   created_at: string;
   submission_count: number;
+  student_count: number;
+  analyzed_count: number;
+  summarized_count: number;
 };
 
 export type CourseDetail = {
   course: CourseSummary;
   submissions: SessionSummary[];
+};
+
+export type StudentCourse = {
+  course: CourseSummary;
+  latest_submission?: SessionSummary | null;
 };
 
 export type QARecord = {
@@ -85,4 +99,10 @@ export type QARecord = {
   answer: string;
   created_by_user_id?: string | null;
   created_at: string;
+};
+
+export type VoiceQASummary = {
+  session: SessionSummary;
+  qa_records: QARecord[];
+  summary: string;
 };

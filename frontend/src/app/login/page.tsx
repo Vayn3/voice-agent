@@ -21,7 +21,11 @@ export default function LoginPage() {
         password: String(form.get("password") || "")
       });
       saveCurrentUser(user);
-      router.push(user.role === "student" ? "/student" : "/teacher");
+      if (user.role === "admin") {
+        router.push("/config");
+      } else {
+        router.push(user.role === "student" ? "/student" : "/teacher");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "登录失败");
     } finally {

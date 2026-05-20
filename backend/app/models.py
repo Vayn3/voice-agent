@@ -27,10 +27,20 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserRegister(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+
+
 class UserOut(BaseModel):
     id: str
     username: str
     display_name: str
+    role: UserRole
+
+
+class UserRoleUpdate(BaseModel):
     role: UserRole
 
 
@@ -62,6 +72,7 @@ class SessionSummary(BaseModel):
     created_at: datetime
     status: AnalysisStatus
     error: str | None = None
+    voice_qa_summary_ready: bool = False
 
 
 class AnalysisResponse(BaseModel):
@@ -69,10 +80,19 @@ class AnalysisResponse(BaseModel):
     result: dict[str, Any] | None = None
 
 
+class VoiceQASummaryResponse(BaseModel):
+    session: SessionSummary
+    qa_records: list["QARecord"]
+    summary: str
+
+
 class SystemConfigIn(BaseModel):
     dashscope_api_key: str = Field(default="", min_length=0)
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_text_model: str = "qwen-long"
+    volc_realtime_app_id: str = Field(default="", min_length=0)
+    volc_realtime_access_key: str = Field(default="", min_length=0)
+    volc_realtime_app_key: str = Field(default="", min_length=0)
 
 
 class SystemConfigOut(BaseModel):
@@ -80,6 +100,10 @@ class SystemConfigOut(BaseModel):
     dashscope_api_key_masked: str = ""
     dashscope_base_url: str
     dashscope_text_model: str
+    realtime_configured: bool = False
+    volc_realtime_app_id_masked: str = ""
+    volc_realtime_access_key_masked: str = ""
+    volc_realtime_app_key_masked: str = ""
 
 
 class ConfigCheckResponse(BaseModel):
@@ -114,11 +138,24 @@ class CourseSummary(BaseModel):
     assignment_requirements: str
     created_at: datetime
     submission_count: int
+    student_count: int = 0
+    analyzed_count: int = 0
+    summarized_count: int = 0
 
 
 class CourseDetail(BaseModel):
     course: CourseSummary
     submissions: list[SessionSummary]
+
+
+class CourseJoinRequest(BaseModel):
+    student_user_id: str
+    student_name: str = ""
+
+
+class StudentCourse(BaseModel):
+    course: CourseSummary
+    latest_submission: SessionSummary | None = None
 
 
 class QARecordCreate(BaseModel):

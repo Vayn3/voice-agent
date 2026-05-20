@@ -2,39 +2,52 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { checkConfig, createCourseSession, getSession, listCourses } from "@/lib/api";
-import { hasRole, readCurrentUser } from "@/lib/auth";
-import type { AnalysisResponse, CourseSummary, User } from "@/types/api";
+import { RequireRole } from "@/app/RequireRole";
+import {
+  checkConfig,
+  createCourseSession,
+  enrollCourse,
+  getSession,
+  listStudentCourses
+} from "@/lib/api";
+import type { AnalysisResponse, CourseSummary, StudentCourse, User } from "@/types/api";
+
+type StudentView = "courses" | "join";
 
 export default function StudentPage() {
-  const [courses, setCourses] = useState<CourseSummary[]>([]);
+  return (
+    <RequireRole roles={["student"]}>
+      {(user) => <StudentWorkspace currentUser={user} />}
+    </RequireRole>
+  );
+}
+
+function StudentWorkspace({ currentUser }: { currentUser: User }) {
+  const [view, setView] = useState<StudentView>("courses");
+  const [items, setItems] = useState<StudentCourse[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
-  const [fileName, setFileName] = useState("选择或拖入课程报告文件");
   const [session, setSession] = useState<AnalysisResponse | null>(null);
+  const [fileName, setFileName] = useState("选择或拖入课程报告文件");
   const [status, setStatus] = useState("等待提交");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [joining, setJoining] = useState(false);
 
-  const selectedCourse = useMemo(
-    () => courses.find((course) => course.id === selectedCourseId),
-    [courses, selectedCourseId]
+  const selectedItem = useMemo(
+    () => items.find((item) => item.course.id === selectedCourseId),
+    [items, selectedCourseId]
   );
-  const result = session?.result;
-  const isAnalyzing =
-    submitting ||
-    session?.session.status === "pending" ||
-    session?.session.status === "processing";
+  const selectedCourse = selectedItem?.course;
+  const latestSubmission = selectedItem?.latest_submission;
+  const activeSessionId = session?.session.id || latestSubmission?.id || "";
+  const activeSubmission = session?.session || latestSubmission;
+  const canEnterQA =
+    activeSubmission?.status === "completed" && !activeSubmission.voice_qa_summary_ready;
+  const isAnalyzing = submitting || session?.session.status === "pending" || session?.session.status === "processing";
 
   useEffect(() => {
-    setCurrentUser(readCurrentUser());
-    listCourses()
-      .then((payload) => {
-        setCourses(payload);
-        setSelectedCourseId(payload[0]?.id || "");
-      })
-      .catch(() => setMessage("后端服务未连接，请确认 FastAPI 已启动。"));
-  }, []);
+    refreshCourses();
+  }, [currentUser.id]);
 
   useEffect(() => {
     if (!session?.session.id) return;
@@ -45,11 +58,12 @@ export default function StudentPage() {
         const payload = await getSession(session.session.id);
         setSession(payload);
         if (payload.session.status === "completed") {
-          setStatus("分析完成，可以进入问答");
+          setStatus("报告分析完毕，可以进入问答界面。");
+          await refreshCourses(payload.session.course_id || selectedCourseId);
         } else if (payload.session.status === "failed") {
           setStatus(`分析失败：${payload.session.error || "未知错误"}`);
         } else {
-          setStatus(payload.session.status === "processing" ? "正在生成问题" : "等待分析");
+          setStatus(payload.session.status === "processing" ? "正在分析报告" : "等待分析");
         }
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "获取分析状态失败");
@@ -57,34 +71,62 @@ export default function StudentPage() {
     }, 1800);
 
     return () => window.clearInterval(timer);
-  }, [session?.session.id, session?.session.status]);
+  }, [session?.session.id, session?.session.status, selectedCourseId]);
+
+  async function refreshCourses(nextSelectedId?: string) {
+    try {
+      const payload = await listStudentCourses(currentUser.id);
+      setItems(payload);
+      setSelectedCourseId((current) => nextSelectedId || current || payload[0]?.course.id || "");
+    } catch {
+      setMessage("后端服务未连接，请确认 FastAPI 已启动。");
+    }
+  }
+
+  async function handleJoinCourse(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setJoining(true);
+    setMessage("");
+    const form = new FormData(event.currentTarget);
+    const courseCode = String(form.get("course_code") || "").trim();
+    try {
+      const course = await enrollCourse(courseCode, {
+        student_user_id: currentUser.id,
+        student_name: currentUser.display_name
+      });
+      await refreshCourses(course.id);
+      setView("courses");
+      setMessage("课程加入成功。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "加入课程失败");
+    } finally {
+      setJoining(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    if (currentUser?.id) {
-      formData.set("student_user_id", currentUser.id);
-    }
-    setMessage("");
-
+    const formElement = event.currentTarget;
     if (!selectedCourseId) {
-      setMessage("请先选择一个课程。");
+      setMessage("请先选择一个已加入课程。");
       return;
     }
-
     const checked = await checkConfig();
     if (!checked.configured) {
       setMessage(checked.message);
-      setStatus("系统配置未完成");
       return;
     }
 
+    const formData = new FormData(formElement);
+    formData.set("student_user_id", currentUser.id);
     setSubmitting(true);
+    setMessage("");
     setStatus("正在上传报告");
     try {
       const payload = await createCourseSession(selectedCourseId, formData);
       setSession(payload);
-      setStatus("已提交，等待分析");
+      setStatus("已提交，等待报告分析。");
+      await refreshCourses(selectedCourseId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "提交失败");
       setStatus("提交失败");
@@ -94,151 +136,152 @@ export default function StudentPage() {
   }
 
   return (
-    <>
-      <section className="workspace">
-        <div className="page-head">
-          <div>
-            <p className="eyebrow">学生端</p>
-            <h1>加入课程并提交报告</h1>
-          </div>
-          <div className="badge">{courses.length} 门可加入课程</div>
+    <section className="workspace">
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">学生端</p>
+          <h1>{view === "join" ? "加入课程" : "我的课程"}</h1>
         </div>
+        <div className="segmented">
+          <button className={view === "courses" ? "active" : ""} type="button" onClick={() => setView("courses")}>
+            我的课程
+          </button>
+          <button className={view === "join" ? "active" : ""} type="button" onClick={() => setView("join")}>
+            加入课程
+          </button>
+        </div>
+      </div>
 
-        {message && (
-          <p className="message error">
-            {message.includes("DashScope") ? <Link href="/config">{message}</Link> : message}
-          </p>
-        )}
+      {message && (
+        <p className={message.includes("成功") ? "message success" : "message error"}>
+          {message}
+        </p>
+      )}
 
-        {!hasRole(currentUser, ["student", "admin"]) && (
-          <p className="message error">请先使用学生或管理员账号登录后再提交报告。</p>
-        )}
-
-        {!courses.length && (
-          <p className="message">当前还没有课程，请老师先在老师端创建课程。</p>
-        )}
-
-        <form className="form" onSubmit={handleSubmit}>
-          <div className="grid two">
-            <label>
-              选择课程
-              <select
-                value={selectedCourseId}
-                onChange={(event) => setSelectedCourseId(event.currentTarget.value)}
-                required
-              >
-                {courses.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.name} / {course.assignment_name} / {course.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              学生姓名
-              <input name="student_name" placeholder="例如：张三" defaultValue={currentUser?.display_name || ""} required />
-            </label>
-          </div>
-
-          {selectedCourse && (
-            <div className="brief-item">
-              <strong>{selectedCourse.name}</strong>
-              <p className="hint">课程码：{selectedCourse.id}</p>
-              <p><strong>作业：</strong>{selectedCourse.assignment_name}</p>
-              <p><strong>要求：</strong>{selectedCourse.assignment_requirements}</p>
-            </div>
-          )}
-
-          <label className="dropzone">
-            <input
-              name="report_file"
-              type="file"
-              accept=".pdf,.doc,.docx,.md,.txt"
-              required
-              onChange={(event) =>
-                setFileName(event.currentTarget.files?.[0]?.name || "选择或拖入课程报告文件")
-              }
-            />
-            <strong>{fileName}</strong>
-            <small>支持 PDF、Word、Markdown、TXT</small>
+      {view === "join" ? (
+        <form className="form" onSubmit={handleJoinCourse}>
+          <label>
+            课程码
+            <input name="course_code" placeholder="请输入老师提供的课程码" required />
           </label>
-
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={isAnalyzing || !courses.length || !hasRole(currentUser, ["student", "admin"])}
-          >
-            {isAnalyzing && <span className="spinner" aria-hidden="true" />}
-            {isAnalyzing ? "正在分析报告..." : "提交报告并生成问题"}
+          <button className="primary-button" type="submit" disabled={joining}>
+            {joining ? "加入中..." : "加入课程"}
           </button>
         </form>
-
-        <section className="status-row">
-          <div>
-            <p className="label">当前状态</p>
-            <strong>{status}</strong>
-          </div>
-          <div>
-            <p className="label">会话 ID</p>
-            <code>{session?.session.id || "-"}</code>
-          </div>
-        </section>
-      </section>
-
-      <section className="result-layout">
-        <article className="panel">
-          <div className="panel-head">
-            <h2>报告概览</h2>
-          </div>
-          {result?.report_brief ? (
-            <div className="brief-list">
-              <div className="brief-item">
-                <strong>主题：</strong>{result.report_brief.topic || "未明确"}
-              </div>
-              <div className="brief-item">
-                <strong>核心结论：</strong>
-                <ul>{(result.report_brief.core_claims || ["未明确"]).map((item) => <li key={item}>{item}</li>)}</ul>
-              </div>
+      ) : (
+        <div className="student-course-grid">
+          <section className="panel flat">
+            <div className="panel-head">
+              <h2>已加入课程</h2>
             </div>
-          ) : (
-            <div className="empty">提交后这里会显示报告分析概览。</div>
-          )}
-        </article>
+            {items.length ? (
+              <div className="list-stack">
+                {items.map((item) => (
+                  <button
+                    className={item.course.id === selectedCourseId ? "list-button active" : "list-button"}
+                    key={item.course.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCourseId(item.course.id);
+                      setSession(null);
+                      setStatus(item.latest_submission ? studentSubmissionStatus(item.latest_submission) : "等待提交");
+                    }}
+                  >
+                    <strong>{item.course.name}</strong>
+                    <span>{item.course.assignment_name}</span>
+                    <span>状态：{item.latest_submission ? studentSubmissionStatus(item.latest_submission) : "未提交报告"}</span>
+                    <code>课程码：{item.course.id}</code>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">还没有加入课程，请先通过课程码加入。</div>
+            )}
+          </section>
 
-        <article className="panel">
-          <div className="panel-head">
-            <h2>语音问答 Prompt</h2>
-          </div>
-          <pre className="prompt-box">{result?.voice_qa_prompt || "等待生成。"}</pre>
-        </article>
-
-        <article className="panel full">
-          <div className="panel-head">
-            <h2>需要回答的问题</h2>
-          </div>
-          {result?.question_plan?.length ? (
-            <div className="question-list">
-              {result.question_plan.map((item, index) => (
-                <div className="question-item" key={item.id || index}>
-                  <header>
-                    <strong>{item.focus || item.id || "追问点"}</strong>
-                    <span className="priority">{item.priority || "medium"}</span>
-                  </header>
-                  <p>{item.question}</p>
-                  <p><strong>回答充分标准：</strong></p>
-                  <ul>
-                    {(item.sufficient_answer_criteria || ["未明确"]).map((text) => (
-                      <li key={text}>{text}</li>
-                    ))}
-                  </ul>
+          <section className="panel flat">
+            <div className="panel-head">
+              <h2>课程要求</h2>
+            </div>
+            {selectedCourse ? (
+              <div className="brief-list">
+                <div className="brief-item">
+                  <strong>{selectedCourse.name}</strong>
+                  <p className="hint">课程码：{selectedCourse.id}</p>
                 </div>
-              ))}
+                <div className="brief-item">
+                  <strong>作业：</strong>{selectedCourse.assignment_name}
+                </div>
+                <div className="brief-item">
+                  <strong>要求：</strong>
+                  <p>{selectedCourse.assignment_requirements}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="empty">选择课程后查看要求。</div>
+            )}
+          </section>
+
+          <section className="panel flat full">
+            <div className="panel-head">
+              <h2>提交报告</h2>
+              {canEnterQA && activeSessionId && (
+                <Link className="secondary-button" href={`/student/qa/${activeSessionId}`}>
+                  进入问答界面
+                </Link>
+              )}
             </div>
-          ) : (
-            <div className="empty">问题计划生成后会显示在这里。</div>
-          )}
-        </article>
-      </section>
-    </>
+
+            {selectedCourse ? (
+              <>
+                <form className="form" onSubmit={handleSubmit}>
+                  <input name="student_name" type="hidden" value={currentUser.display_name} />
+                  <label className="dropzone">
+                    <input
+                      name="report_file"
+                      type="file"
+                      accept=".pdf,.doc,.docx,.md,.txt"
+                      required
+                      onChange={(event) =>
+                        setFileName(event.currentTarget.files?.[0]?.name || "选择或拖入课程报告文件")
+                      }
+                    />
+                    <strong>{fileName}</strong>
+                    <small>支持 PDF、Word、Markdown、TXT</small>
+                  </label>
+                  <button className="primary-button" type="submit" disabled={isAnalyzing}>
+                    {isAnalyzing ? "正在分析报告..." : "上传并分析报告"}
+                  </button>
+                </form>
+                <section className="status-row">
+                  <div>
+                    <p className="label">当前状态</p>
+                    <strong>{session ? status : latestSubmission ? studentSubmissionStatus(latestSubmission) : status}</strong>
+                  </div>
+                  <div>
+                    <p className="label">会话 ID</p>
+                    <code>{activeSessionId || "-"}</code>
+                  </div>
+                </section>
+              </>
+            ) : (
+              <div className="empty">请先加入并选择课程。</div>
+            )}
+          </section>
+        </div>
+      )}
+    </section>
   );
+}
+
+function studentSubmissionStatus(submission: StudentCourse["latest_submission"]) {
+  if (!submission) return "未提交报告";
+  if (submission.voice_qa_summary_ready) return "已完成问答总结";
+  const map: Record<string, string> = {
+    pending: "等待分析",
+    processing: "分析中",
+    completed: "报告已分析",
+    failed: "失败"
+  };
+  return map[submission.status] || submission.status;
 }

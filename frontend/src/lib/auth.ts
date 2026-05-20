@@ -16,10 +16,12 @@ export function readCurrentUser(): User | null {
 
 export function saveCurrentUser(user: User): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+  window.dispatchEvent(new Event("voice-ta-auth-change"));
 }
 
 export function clearCurrentUser(): void {
   window.localStorage.removeItem(STORAGE_KEY);
+  window.dispatchEvent(new Event("voice-ta-auth-change"));
 }
 
 export function hasRole(user: User | null, roles: UserRole[]): boolean {

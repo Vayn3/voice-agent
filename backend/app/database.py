@@ -54,6 +54,19 @@ class CourseRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     reports: Mapped[list["ReportRow"]] = relationship(back_populates="course")
+    enrollments: Mapped[list["CourseEnrollmentRow"]] = relationship(back_populates="course")
+
+
+class CourseEnrollmentRow(Base):
+    __tablename__ = "course_enrollments"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True)
+    student_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    student_name: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    course: Mapped[CourseRow] = relationship(back_populates="enrollments")
 
 
 class ReportRow(Base):
@@ -142,6 +155,11 @@ def _ensure_compatible_schema() -> None:
         ("reports", "status", "ALTER TABLE reports ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'pending'"),
         ("reports", "result", "ALTER TABLE reports ADD COLUMN result JSON NULL"),
         ("reports", "error", "ALTER TABLE reports ADD COLUMN error TEXT NULL"),
+        ("course_enrollments", "id", "ALTER TABLE course_enrollments ADD COLUMN id VARCHAR(32) NOT NULL"),
+        ("course_enrollments", "course_id", "ALTER TABLE course_enrollments ADD COLUMN course_id VARCHAR(16) NOT NULL"),
+        ("course_enrollments", "student_user_id", "ALTER TABLE course_enrollments ADD COLUMN student_user_id VARCHAR(32) NOT NULL"),
+        ("course_enrollments", "student_name", "ALTER TABLE course_enrollments ADD COLUMN student_name VARCHAR(64) NOT NULL DEFAULT ''"),
+        ("course_enrollments", "created_at", "ALTER TABLE course_enrollments ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
     ]
     with engine.begin() as connection:
         for table_name, column_name, statement in statements:

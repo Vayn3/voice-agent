@@ -7,7 +7,7 @@ from typing import Any
 from openai import OpenAI
 
 from backend.app.models import SystemConfigIn
-from backend.app.services.prompt_templates import build_report_analysis_prompt
+from backend.app.services.prompt_templates import build_report_analysis_prompt, build_voice_qa_summary_prompt
 
 
 def _client(config: SystemConfigIn) -> OpenAI:
@@ -82,3 +82,37 @@ def analyze_report_file(
         "source_filename": file_path.name,
     }
     return parsed
+
+
+def summarize_voice_qa(
+    *,
+    file_path: Path,
+    student_name: str,
+    course_name: str,
+    assignment_name: str,
+    assignment_requirements: str = "",
+    report_analysis: dict[str, Any] | None,
+    qa_records: list[dict[str, str]],
+    config: SystemConfigIn,
+) -> str:
+    client = _client(config)
+    prompt = build_voice_qa_summary_prompt(
+        student_name=student_name,
+        course_name=course_name,
+        assignment_name=assignment_name,
+        assignment_requirements=assignment_requirements,
+        report_analysis=json.dumps(report_analysis or {}, ensure_ascii=False, indent=2),
+        qa_records=json.dumps(qa_records, ensure_ascii=False, indent=2),
+    )
+
+    with file_path.open("rb") as file_handle:
+        file_object = client.files.create(file=file_handle, purpose="file-extract")
+
+    completion = client.chat.completions.create(
+        model=config.dashscope_text_model,
+        messages=[
+            {"role": "system", "content": f"fileid://{file_object.id}"},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    return completion.choices[0].message.content or ""
