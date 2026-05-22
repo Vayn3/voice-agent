@@ -33,6 +33,7 @@ SPEAKER = os.getenv("VOLC_REALTIME_SPEAKER", "zh_male_xiaotian_jupiter_bigtts")
 OUTPUT_SAMPLE_RATE = 24000
 CHANNELS = 1
 RECV_TIMEOUT = int(os.getenv("VOLC_REALTIME_RECV_TIMEOUT", "120"))
+DIALOG_DONE_PHRASE = "好的，我的问题问完了"
 
 
 class RealtimeConfigError(RuntimeError):
@@ -198,16 +199,8 @@ def merge_stream_text(current: str, incoming: str) -> str:
 
 
 def is_dialog_done(text: str) -> bool:
-    normalized = text.replace(" ", "")
-    done_markers = [
-        "问答结束",
-        "本次问答结束",
-        "今天的问答到这里",
-        "本轮问答到这里",
-        "所有问题已经完成",
-        "可以结束问答",
-    ]
-    return any(marker in normalized for marker in done_markers)
+    normalized = "".join(text.split())
+    return DIALOG_DONE_PHRASE in normalized
 
 
 def build_realtime_system_prompt(base_prompt: str, question_plan: Any) -> str:
@@ -219,7 +212,8 @@ def build_realtime_system_prompt(base_prompt: str, question_plan: Any) -> str:
 1. 开场后一次只提出一个问题，等待学生回答。
 2. 学生回答不充分时，最多追问两次；充分时进入下一题。
 3. 不要询问与报告、课程或作业无关的个人信息。
-4. 当所有高优先级问题都完成，且必要的中优先级问题也已覆盖后，用自然语言明确说出“本次问答结束”，然后简短感谢学生。
+4. 你需要自己判断问题是否已经问完：当所有高优先级问题都完成，且必要的中优先级问题也已覆盖后，结束本次问答。
+5. 结束时必须单独说出固定结束语“{DIALOG_DONE_PHRASE}”。不要在这句话前后继续提问，也不要改写这句固定结束语。
 
 结构化问题计划如下：
 {question_plan_text}
