@@ -8,11 +8,13 @@ import {
   createCourseSession,
   enrollCourse,
   getSession,
+  listQARecords,
   listStudentCourses
 } from "@/lib/api";
-import type { AnalysisResponse, CourseSummary, StudentCourse, User } from "@/types/api";
+import type { AnalysisResponse, QARecord, StudentCourse, User } from "@/types/api";
 
 type StudentView = "courses" | "join";
+type CourseDetailMode = "overview" | "upload" | "records" | "summary";
 
 export default function StudentPage() {
   return (
@@ -27,6 +29,9 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
   const [items, setItems] = useState<StudentCourse[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [session, setSession] = useState<AnalysisResponse | null>(null);
+  const [detailMode, setDetailMode] = useState<CourseDetailMode>("overview");
+  const [qaRecords, setQARecords] = useState<QARecord[]>([]);
+  const [qaMessage, setQAMessage] = useState("");
   const [fileName, setFileName] = useState("选择或拖入课程报告文件");
   const [status, setStatus] = useState("等待提交");
   const [message, setMessage] = useState("");
@@ -41,9 +46,14 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
   const latestSubmission = selectedItem?.latest_submission;
   const activeSessionId = session?.session.id || latestSubmission?.id || "";
   const activeSubmission = session?.session || latestSubmission;
-  const canEnterQA =
-    activeSubmission?.status === "completed" && !activeSubmission.voice_qa_summary_ready;
-  const isAnalyzing = submitting || session?.session.status === "pending" || session?.session.status === "processing";
+  const activeResult = session?.session.id === activeSessionId ? session.result : null;
+  const displayStatus = submitting
+    ? status
+    : activeSubmission
+      ? studentSubmissionStatus(activeSubmission)
+      : "未提交报告";
+  const isAnalyzing =
+    submitting || activeSubmission?.status === "pending" || activeSubmission?.status === "processing";
 
   useEffect(() => {
     refreshCourses();
@@ -80,6 +90,32 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
       setSelectedCourseId((current) => nextSelectedId || current || payload[0]?.course.id || "");
     } catch {
       setMessage("后端服务未连接，请确认 FastAPI 已启动。");
+    }
+  }
+
+  async function openReportMode(mode: CourseDetailMode) {
+    setMessage("");
+    setQAMessage("");
+    if (mode === "overview") {
+      setDetailMode("overview");
+      return;
+    }
+    if (!activeSessionId) return;
+    try {
+      const payload = await getSession(activeSessionId);
+      setSession(payload);
+      setDetailMode(mode);
+      if (mode === "records") {
+        const records = await listQARecords(activeSessionId);
+        setQARecords(records);
+      }
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "加载报告信息失败";
+      if (mode === "records") {
+        setQAMessage(text);
+      } else {
+        setMessage(text);
+      }
     }
   }
 
@@ -125,6 +161,7 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
     try {
       const payload = await createCourseSession(selectedCourseId, formData);
       setSession(payload);
+      setDetailMode("overview");
       setStatus("已提交，等待报告分析。");
       await refreshCourses(selectedCourseId);
     } catch (error) {
@@ -184,7 +221,9 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
                     onClick={() => {
                       setSelectedCourseId(item.course.id);
                       setSession(null);
-                      setStatus(item.latest_submission ? studentSubmissionStatus(item.latest_submission) : "等待提交");
+                      setDetailMode("overview");
+                      setQARecords([]);
+                      setQAMessage("");
                     }}
                   >
                     <strong>{item.course.name}</strong>
@@ -199,78 +238,213 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
             )}
           </section>
 
-          <section className="panel flat">
+          <section className="panel flat student-course-detail">
             <div className="panel-head">
-              <h2>课程要求</h2>
+              <h2>{selectedCourse ? selectedCourse.name : "课程信息"}</h2>
             </div>
             {selectedCourse ? (
-              <div className="brief-list">
-                <div className="brief-item">
-                  <strong>{selectedCourse.name}</strong>
-                  <p className="hint">课程码：{selectedCourse.id}</p>
-                </div>
-                <div className="brief-item">
-                  <strong>作业：</strong>{selectedCourse.assignment_name}
-                </div>
-                <div className="brief-item">
-                  <strong>要求：</strong>
-                  <p>{selectedCourse.assignment_requirements}</p>
-                </div>
-              </div>
+              <StudentCourseDetail
+                activeResult={activeResult}
+                activeSessionId={activeSessionId}
+                activeSubmission={activeSubmission}
+                currentUser={currentUser}
+                detailMode={detailMode}
+                fileName={fileName}
+                isAnalyzing={isAnalyzing}
+                qaMessage={qaMessage}
+                qaRecords={qaRecords}
+                selectedCourse={selectedCourse}
+                status={displayStatus}
+                submitting={submitting}
+                onEnterUpload={() => {
+                  setDetailMode("upload");
+                  setMessage("");
+                }}
+                onFileNameChange={setFileName}
+                onOpenReportMode={openReportMode}
+                onSubmit={handleSubmit}
+              />
             ) : (
               <div className="empty">选择课程后查看要求。</div>
-            )}
-          </section>
-
-          <section className="panel flat full">
-            <div className="panel-head">
-              <h2>提交报告</h2>
-              {canEnterQA && activeSessionId && (
-                <Link className="secondary-button" href={`/student/qa/${activeSessionId}`}>
-                  进入问答界面
-                </Link>
-              )}
-            </div>
-
-            {selectedCourse ? (
-              <>
-                <form className="form" onSubmit={handleSubmit}>
-                  <input name="student_name" type="hidden" value={currentUser.display_name} />
-                  <label className="dropzone">
-                    <input
-                      name="report_file"
-                      type="file"
-                      accept=".pdf,.doc,.docx,.md,.txt"
-                      required
-                      onChange={(event) =>
-                        setFileName(event.currentTarget.files?.[0]?.name || "选择或拖入课程报告文件")
-                      }
-                    />
-                    <strong>{fileName}</strong>
-                    <small>支持 PDF、Word、Markdown、TXT</small>
-                  </label>
-                  <button className="primary-button" type="submit" disabled={isAnalyzing}>
-                    {isAnalyzing ? "正在分析报告..." : "上传并分析报告"}
-                  </button>
-                </form>
-                <section className="status-row">
-                  <div>
-                    <p className="label">当前状态</p>
-                    <strong>{session ? status : latestSubmission ? studentSubmissionStatus(latestSubmission) : status}</strong>
-                  </div>
-                  <div>
-                    <p className="label">会话 ID</p>
-                    <code>{activeSessionId || "-"}</code>
-                  </div>
-                </section>
-              </>
-            ) : (
-              <div className="empty">请先加入并选择课程。</div>
             )}
           </section>
         </div>
       )}
     </section>
+  );
+}
+
+function StudentCourseDetail({
+  activeResult,
+  activeSessionId,
+  activeSubmission,
+  currentUser,
+  detailMode,
+  fileName,
+  isAnalyzing,
+  qaMessage,
+  qaRecords,
+  selectedCourse,
+  status,
+  submitting,
+  onEnterUpload,
+  onFileNameChange,
+  onOpenReportMode,
+  onSubmit
+}: {
+  activeResult: AnalysisResponse["result"] | null;
+  activeSessionId: string;
+  activeSubmission: StudentCourse["latest_submission"];
+  currentUser: User;
+  detailMode: CourseDetailMode;
+  fileName: string;
+  isAnalyzing: boolean;
+  qaMessage: string;
+  qaRecords: QARecord[];
+  selectedCourse: StudentCourse["course"];
+  status: string;
+  submitting: boolean;
+  onEnterUpload: () => void;
+  onFileNameChange: (name: string) => void;
+  onOpenReportMode: (mode: CourseDetailMode) => Promise<void>;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+}) {
+  const hasSubmitted = Boolean(activeSubmission);
+  const isPendingOrProcessing =
+    activeSubmission?.status === "pending" || activeSubmission?.status === "processing" || isAnalyzing;
+  const isAnalyzed = activeSubmission?.status === "completed" && !activeSubmission.voice_qa_summary_ready;
+  const isSummarized = Boolean(activeSubmission?.voice_qa_summary_ready);
+  const canUpload = !hasSubmitted || activeSubmission?.status === "failed" || detailMode === "upload";
+
+  return (
+    <div className="student-detail">
+      <div className="brief-list">
+        <div className="brief-item">
+          <strong>作业：</strong>{selectedCourse.assignment_name}
+        </div>
+        <div className="brief-item">
+          <strong>课程码：</strong>{selectedCourse.id}
+        </div>
+        <div className="brief-item">
+          <strong>课程要求：</strong>
+          <p>{selectedCourse.assignment_requirements}</p>
+        </div>
+        <div className="brief-item">
+          <strong>我的提交状态：</strong>{status}
+        </div>
+      </div>
+
+      <div className="student-action-row">
+        <button
+          className={detailMode === "overview" ? "secondary-button active" : "secondary-button"}
+          type="button"
+          onClick={() => onOpenReportMode("overview")}
+        >
+          返回状态
+        </button>
+        {!hasSubmitted && (
+          <button className="primary-button" type="button" onClick={onEnterUpload}>
+            提交报告
+          </button>
+        )}
+        {isAnalyzed && activeSessionId && (
+          <>
+            <Link className="primary-button" href={`/student/qa/${activeSessionId}`}>
+              进入问答界面
+            </Link>
+            <button className="secondary-button" type="button" onClick={onEnterUpload}>
+              重新上传
+            </button>
+          </>
+        )}
+        {isSummarized && (
+          <>
+            <button
+              className={detailMode === "records" ? "secondary-button active" : "secondary-button"}
+              type="button"
+              onClick={() => onOpenReportMode("records")}
+            >
+              查看问答结果
+            </button>
+            <button
+              className={detailMode === "summary" ? "secondary-button active" : "secondary-button"}
+              type="button"
+              onClick={() => onOpenReportMode("summary")}
+            >
+              查看总结报告
+            </button>
+            <button className="secondary-button" type="button" onClick={onEnterUpload}>
+              重新上传
+            </button>
+          </>
+        )}
+        {activeSubmission?.status === "failed" && (
+          <button className="primary-button" type="button" onClick={onEnterUpload}>
+            重新上传
+          </button>
+        )}
+      </div>
+
+      {isPendingOrProcessing && detailMode === "overview" && (
+        <div className="message">报告正在上传或分析中，完成后会出现后续操作按钮。</div>
+      )}
+
+      {canUpload && (
+        <form className="form student-upload-form" onSubmit={onSubmit}>
+          <input name="student_name" type="hidden" value={currentUser.display_name} />
+          <label className="dropzone">
+            <input
+              name="report_file"
+              type="file"
+              accept=".pdf,.doc,.docx,.md,.txt"
+              required
+              onChange={(event) =>
+                onFileNameChange(event.currentTarget.files?.[0]?.name || "选择或拖入课程报告文件")
+              }
+            />
+            <strong>{fileName}</strong>
+            <small>支持 PDF、Word、Markdown、TXT</small>
+          </label>
+          <button className="primary-button" type="submit" disabled={isAnalyzing || submitting}>
+            {isAnalyzing || submitting ? "正在分析报告..." : "上传并分析报告"}
+          </button>
+        </form>
+      )}
+
+      {detailMode === "records" && (
+        <div className="report-section">
+          <div className="panel-head">
+            <h3>问答历史记录</h3>
+          </div>
+          {qaMessage && <p className="message error">{qaMessage}</p>}
+          {qaRecords.length ? (
+            <div className="qa-record-list">
+              {qaRecords.map((record, index) => (
+                <article className="qa-record" key={record.id || index}>
+                  <strong>Q{index + 1}：{record.question}</strong>
+                  <p>A：{record.answer}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty">暂无问答记录。</div>
+          )}
+        </div>
+      )}
+
+      {detailMode === "summary" && (
+        <div className="report-section">
+          <div className="panel-head">
+            <h3>问答总结报告</h3>
+          </div>
+          {activeResult?.voice_qa_summary ? (
+            <p className="qa-summary">{activeResult.voice_qa_summary}</p>
+          ) : (
+            <div className="empty">暂无总结报告。</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

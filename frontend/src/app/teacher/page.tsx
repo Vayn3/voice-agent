@@ -2,10 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { RequireRole } from "@/app/RequireRole";
-import { createCourse, getCourse, getSession, listCourses } from "@/lib/api";
-import type { AnalysisResponse, CourseDetail, CourseSummary, SessionSummary, User } from "@/types/api";
+import { createCourse, getCourse, getSession, listCourses, listQARecords } from "@/lib/api";
+import type { AnalysisResponse, CourseDetail, CourseSummary, QARecord, SessionSummary, User } from "@/types/api";
 
 type TeacherView = "courses" | "create";
+type ReportTab = "questions" | "records" | "summary";
 
 export default function TeacherPage() {
   return (
@@ -270,10 +271,45 @@ function TeacherCourses({
 }
 
 function ReportPreview({ report }: { report: AnalysisResponse | null }) {
+  const [activeTab, setActiveTab] = useState<ReportTab>("questions");
+  const [qaRecords, setQARecords] = useState<QARecord[]>([]);
+  const [qaMessage, setQAMessage] = useState("");
+
+  useEffect(() => {
+    setActiveTab("questions");
+    setQARecords([]);
+    setQAMessage("");
+    if (!report?.session.id) return;
+
+    listQARecords(report.session.id)
+      .then(setQARecords)
+      .catch((error) => {
+        setQAMessage(error instanceof Error ? error.message : "无法读取问答记录");
+      });
+  }, [report?.session.id]);
+
   if (!report) {
     return <div className="empty">选择一名学生后查看报告分析、问题计划和问答总结。</div>;
   }
   const result = report.result;
+  const maxFollowUps =
+    typeof result?.coverage_threshold?.max_follow_ups_per_question === "number"
+      ? result.coverage_threshold.max_follow_ups_per_question
+      : null;
+  const highPriorityRequired =
+    typeof result?.coverage_threshold?.required_high_priority_completed === "boolean"
+      ? result.coverage_threshold.required_high_priority_completed
+      : null;
+  const doneRule =
+    typeof result?.coverage_threshold?.done_rule === "string"
+      ? result.coverage_threshold.done_rule
+      : "";
+  const questionStrategy = [
+    "按问题优先级依次提问，一次只提出一个问题，等待学生回答后再进入下一步。",
+    maxFollowUps !== null ? `回答不充分时，每个问题最多追问 ${maxFollowUps} 次。` : "",
+    highPriorityRequired === true ? "高优先级问题需要覆盖完成后，再判断是否可以结束问答。" : "",
+    doneRule ? `结束判断：${doneRule}` : ""
+  ].filter(Boolean);
   if (report.session.status !== "completed") {
     return (
       <div className="brief-item">
@@ -287,24 +323,100 @@ function ReportPreview({ report }: { report: AnalysisResponse | null }) {
   return (
     <div className="summary-preview">
       <h3>{report.session.student_name} 的报告</h3>
-      <div className="brief-item">
-        <strong>状态：</strong>{result?.voice_qa_summary ? "已完成问答总结" : "报告已分析"}
-      </div>
-      <div className="brief-item">
-        <strong>报告主题：</strong>{result?.report_brief?.topic || "未明确"}
-      </div>
-      <div className="brief-item">
-        <strong>核心结论：</strong>
-        <ul>{(result?.report_brief?.core_claims || ["未明确"]).map((item) => <li key={item}>{item}</li>)}</ul>
-      </div>
-      <div className="brief-item">
-        <strong>生成的问题：</strong>
-        <ul>{(result?.question_plan || []).map((item, index) => <li key={item.id || index}>{item.question}</li>)}</ul>
-      </div>
-      {result?.voice_qa_summary && (
+      <div className="report-overview">
         <div className="brief-item">
-          <strong>问答总结报告：</strong>
-          <p className="qa-summary">{result.voice_qa_summary}</p>
+          <strong>状态：</strong>{result?.voice_qa_summary ? "已完成问答总结" : "报告已分析"}
+        </div>
+        <div className="brief-item">
+          <strong>报告主题：</strong>{result?.report_brief?.topic || "未明确"}
+        </div>
+        <div className="brief-item">
+          <strong>核心结论：</strong>
+          <ul>{(result?.report_brief?.core_claims || ["未明确"]).map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+      </div>
+
+      <div className="report-tabs">
+        <button className={activeTab === "questions" ? "active" : ""} type="button" onClick={() => setActiveTab("questions")}>
+          生成问题
+        </button>
+        <button className={activeTab === "records" ? "active" : ""} type="button" onClick={() => setActiveTab("records")}>
+          问答记录
+        </button>
+        <button className={activeTab === "summary" ? "active" : ""} type="button" onClick={() => setActiveTab("summary")}>
+          总结报告
+        </button>
+      </div>
+
+      {activeTab === "questions" && (
+        <div className="report-section">
+          <h4>生成的问题与提问策略</h4>
+          <div className="brief-item">
+            <strong>整体提问策略：</strong>
+            <ul>
+              {questionStrategy.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          {result?.voice_qa_prompt && (
+            <div className="brief-item">
+              <strong>传入语音模型的提问提示词：</strong>
+              <p className="qa-summary">{result.voice_qa_prompt}</p>
+            </div>
+          )}
+          {result?.question_plan?.length ? (
+            <div className="question-list">
+              {result.question_plan.map((item, index) => (
+                <article className="question-item" key={item.id || index}>
+                  <header>
+                    <strong>{item.question || `问题 ${index + 1}`}</strong>
+                    {item.priority && <span className="priority">{item.priority}</span>}
+                  </header>
+                  {item.focus && <p><strong>关注点：</strong>{item.focus}</p>}
+                  {item.follow_up_when_insufficient?.length ? (
+                    <p><strong>回答不足时追问：</strong>{item.follow_up_when_insufficient.join("；")}</p>
+                  ) : null}
+                  {item.sufficient_answer_criteria?.length ? (
+                    <p><strong>充分回答标准：</strong>{item.sufficient_answer_criteria.join("；")}</p>
+                  ) : null}
+                  {item.evidence_hint && <p><strong>证据线索：</strong>{item.evidence_hint}</p>}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty">暂无生成问题。</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "records" && (
+        <div className="report-section">
+          <h4>问答记录</h4>
+          {qaMessage && <p className="message error">{qaMessage}</p>}
+          {qaRecords.length ? (
+            <div className="qa-record-list">
+              {qaRecords.map((record, index) => (
+                <article className="qa-record" key={record.id || index}>
+                  <strong>Q{index + 1}：{record.question}</strong>
+                  <p>A：{record.answer}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty">暂无问答记录。</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "summary" && (
+        <div className="report-section">
+          <h4>问答总结报告</h4>
+          {result?.voice_qa_summary ? (
+            <p className="qa-summary">{result.voice_qa_summary}</p>
+          ) : (
+            <div className="empty">暂无总结报告。</div>
+          )}
         </div>
       )}
     </div>

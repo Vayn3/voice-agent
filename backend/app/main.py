@@ -414,6 +414,8 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
         async def browser_to_dialog() -> None:
             while not stop_event.is_set():
                 message = await websocket.receive()
+                if stop_event.is_set():
+                    break
                 if message.get("bytes") is not None:
                     await client.send_audio(message["bytes"])
                 elif message.get("text"):
@@ -444,6 +446,10 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
                     await websocket.send_json(final_text)
                     if final_text.get("ended"):
                         stop_event.set()
+                        try:
+                            await client.finish_session()
+                        except Exception:
+                            pass
                         break
 
         tasks = [

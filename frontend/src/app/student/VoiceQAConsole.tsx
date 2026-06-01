@@ -22,6 +22,7 @@ export function VoiceQAConsole({
   const outputContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const playbackTimeRef = useRef(0);
+  const endingRef = useRef(false);
 
   useEffect(() => () => cleanupVoiceQA(), []);
 
@@ -29,6 +30,7 @@ export function VoiceQAConsole({
     setMessages([]);
     setStatus("正在连接实时语音服务");
     setRunning(true);
+    endingRef.current = false;
 
     const websocket = new WebSocket(voiceQAWebSocketUrl(sessionId));
     websocket.binaryType = "arraybuffer";
@@ -50,8 +52,13 @@ export function VoiceQAConsole({
           setStatus("问答进行中，请按语音助教提示回答");
         } else if (payload.type === "model_text") {
           setMessages((current) => [...current, { role: "teacher", text: payload.text }]);
-          if (payload.ended) setStatus("检测到问答结束，正在生成总结");
+          if (payload.ended) {
+            endingRef.current = true;
+            stopMicrophone();
+            setStatus("检测到问答结束，已停止麦克风，正在生成总结");
+          }
         } else if (payload.type === "user_text") {
+          if (endingRef.current) return;
           setMessages((current) => [...current, { role: "student", text: payload.text }]);
         } else if (payload.type === "done") {
           cleanupVoiceQA();
@@ -82,6 +89,7 @@ export function VoiceQAConsole({
     const processor = context.createScriptProcessor(4096, 1, 1);
     processorRef.current = processor;
     processor.onaudioprocess = (event) => {
+      if (endingRef.current) return;
       if (websocket.readyState !== WebSocket.OPEN) return;
       websocket.send(floatTo16kPcm(event.inputBuffer.getChannelData(0), context.sampleRate));
     };
@@ -108,16 +116,22 @@ export function VoiceQAConsole({
 
   function stopVoiceQA() {
     setStatus("正在结束问答并整理记录");
+    endingRef.current = true;
+    stopMicrophone();
     wsRef.current?.send(JSON.stringify({ type: "finish" }));
   }
 
-  function cleanupVoiceQA() {
+  function stopMicrophone() {
     processorRef.current?.disconnect();
     processorRef.current = null;
     inputContextRef.current?.close();
     inputContextRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+  }
+
+  function cleanupVoiceQA() {
+    stopMicrophone();
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.close();
     wsRef.current = null;
     setRunning(false);
