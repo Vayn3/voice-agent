@@ -335,13 +335,6 @@ function StudentCourseDetail({
       </div>
 
       <div className="student-action-row">
-        <button
-          className={detailMode === "overview" ? "secondary-button active" : "secondary-button"}
-          type="button"
-          onClick={() => onOpenReportMode("overview")}
-        >
-          返回状态
-        </button>
         {!hasSubmitted && (
           <button className="primary-button" type="button" onClick={onEnterUpload}>
             提交报告
