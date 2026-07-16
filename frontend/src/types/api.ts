@@ -58,9 +58,8 @@ export type SystemConfig = {
   dashscope_base_url: string;
   dashscope_text_model: string;
   realtime_configured: boolean;
-  volc_realtime_app_id_masked: string;
-  volc_realtime_access_key_masked: string;
-  volc_realtime_app_key_masked: string;
+  volc_realtime_api_key_masked: string;
+  volc_realtime_model_version: string;
 };
 
 export type ConfigCheck = {

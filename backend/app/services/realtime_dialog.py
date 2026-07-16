@@ -31,6 +31,7 @@ BASE_URL = os.getenv(
 )
 RESOURCE_ID = os.getenv("VOLC_REALTIME_RESOURCE_ID", "volc.speech.dialog")
 SPEAKER = os.getenv("VOLC_REALTIME_SPEAKER", "zh_female_vv_jupiter_bigtts")
+DEFAULT_MODEL_VERSION = "1.2.1.1"
 OUTPUT_SAMPLE_RATE = 24000
 CHANNELS = 1
 RECV_TIMEOUT = int(os.getenv("VOLC_REALTIME_RECV_TIMEOUT", "120"))
@@ -223,15 +224,17 @@ def build_realtime_system_prompt(base_prompt: str, question_plan: Any) -> str:
 """.strip()
 
 
-def _required_header_config(config: SystemConfigIn) -> tuple[str, str, str]:
-    app_id = config.volc_realtime_app_id.strip() or os.getenv("VOLC_REALTIME_APP_ID", "")
-    access_key = config.volc_realtime_access_key.strip() or os.getenv("VOLC_REALTIME_ACCESS_KEY", "")
-    app_key = config.volc_realtime_app_key.strip() or os.getenv("VOLC_REALTIME_APP_KEY", "")
-    if not app_id or not access_key or not app_key:
-        raise RealtimeConfigError(
-            "请先在系统配置页面填写实时语音对话的 App ID、Access Token 和 Secret Key。"
-        )
-    return app_id, access_key, app_key
+def _required_api_key(config: SystemConfigIn) -> str:
+    api_key = config.volc_realtime_api_key.strip() or os.getenv("VOLC_REALTIME_API_KEY", "")
+    if not api_key:
+        raise RealtimeConfigError("请先在系统配置页面填写豆包语音 API Key。")
+    return api_key
+
+
+def _model_version(config: SystemConfigIn) -> str:
+    return config.volc_realtime_model_version.strip() or os.getenv(
+        "VOLC_REALTIME_MODEL_VERSION", DEFAULT_MODEL_VERSION
+    )
 
 
 async def _connect_websocket(url: str, headers: dict[str, str]) -> Any:
@@ -246,14 +249,13 @@ class RealtimeDialogClient:
         self.system_prompt = system_prompt
         self.config = config
         self.ws: Any = None
+        self.model_version = _model_version(config)
 
     async def connect(self) -> None:
-        app_id, access_key, app_key = _required_header_config(self.config)
+        api_key = _required_api_key(self.config)
         headers = {
-            "X-Api-App-ID": app_id,
-            "X-Api-Access-Key": access_key,
+            "X-Api-Key": api_key,
             "X-Api-Resource-Id": RESOURCE_ID,
-            "X-Api-App-Key": app_key,
             "X-Api-Connect-Id": str(uuid.uuid4()),
         }
         self.ws = await _connect_websocket(BASE_URL, headers)
@@ -267,7 +269,7 @@ class RealtimeDialogClient:
         request.extend(len(payload_bytes).to_bytes(4, "big"))
         request.extend(payload_bytes)
         await self.ws.send(request)
-        parse_response(await self.ws.recv())
+        self._ensure_success(parse_response(await self.ws.recv()), "连接初始化")
 
     async def start_session(self) -> None:
         request_params = {
@@ -285,6 +287,7 @@ class RealtimeDialogClient:
                 "system_role": self.system_prompt,
                 "speaking_style": "严格按照 system_role 中的提示词提问，表达简洁、自然、适合口语。",
                 "extra": {
+                    "model": self.model_version,
                     "strict_audit": False,
                     "audit_response": "抱歉，这个问题我暂时不能回答。",
                     "recv_timeout": RECV_TIMEOUT,
@@ -300,7 +303,14 @@ class RealtimeDialogClient:
         request.extend(len(payload_bytes).to_bytes(4, "big"))
         request.extend(payload_bytes)
         await self.ws.send(request)
-        parse_response(await self.ws.recv())
+        self._ensure_success(parse_response(await self.ws.recv()), "会话初始化")
+
+    @staticmethod
+    def _ensure_success(response: dict[str, Any], stage: str) -> None:
+        if response.get("message_type") != "SERVER_ERROR":
+            return
+        code = response.get("code", "unknown")
+        raise RealtimeConfigError(f"豆包实时语音{stage}失败，错误码：{code}。请检查 API Key 和服务开通状态。")
 
     async def chat_text_query(self, content: str) -> None:
         payload = {"content": content}

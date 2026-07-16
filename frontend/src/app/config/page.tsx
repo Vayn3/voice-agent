@@ -7,6 +7,7 @@ import type { SystemConfig, User, UserRole } from "@/types/api";
 
 const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen-long";
+const DEFAULT_REALTIME_MODEL_VERSION = "1.2.1.1";
 
 type AdminView = "config" | "users";
 
@@ -48,9 +49,8 @@ function ConfigForm() {
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [model, setModel] = useState(DEFAULT_MODEL);
-  const [realtimeAppId, setRealtimeAppId] = useState("");
-  const [realtimeAccessKey, setRealtimeAccessKey] = useState("");
-  const [realtimeAppKey, setRealtimeAppKey] = useState("");
+  const [realtimeApiKey, setRealtimeApiKey] = useState("");
+  const [realtimeModelVersion, setRealtimeModelVersion] = useState(DEFAULT_REALTIME_MODEL_VERSION);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -60,6 +60,7 @@ function ConfigForm() {
         setConfig(payload);
         setBaseUrl(payload.dashscope_base_url || DEFAULT_BASE_URL);
         setModel(payload.dashscope_text_model || DEFAULT_MODEL);
+        setRealtimeModelVersion(payload.volc_realtime_model_version || DEFAULT_REALTIME_MODEL_VERSION);
       })
       .catch(() => setMessage("后端服务未连接，请确认 FastAPI 已启动。"));
   }, []);
@@ -73,15 +74,12 @@ function ConfigForm() {
         dashscope_api_key: apiKey,
         dashscope_base_url: baseUrl,
         dashscope_text_model: model,
-        volc_realtime_app_id: realtimeAppId,
-        volc_realtime_access_key: realtimeAccessKey,
-        volc_realtime_app_key: realtimeAppKey
+        volc_realtime_api_key: realtimeApiKey,
+        volc_realtime_model_version: realtimeModelVersion
       });
       setConfig(payload);
       setApiKey("");
-      setRealtimeAppId("");
-      setRealtimeAccessKey("");
-      setRealtimeAppKey("");
+      setRealtimeApiKey("");
       setMessage("配置已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存失败");
@@ -102,8 +100,8 @@ function ConfigForm() {
       )}
       {config?.realtime_configured && (
         <p className="hint">
-          当前实时语音配置：App ID {config.volc_realtime_app_id_masked}，Access Token{" "}
-          {config.volc_realtime_access_key_masked}，Secret Key {config.volc_realtime_app_key_masked}
+          当前豆包实时语音配置：API Key {config.volc_realtime_api_key_masked}，模型版本{" "}
+          {config.volc_realtime_model_version}
         </p>
       )}
       {message && (
@@ -143,47 +141,29 @@ function ConfigForm() {
 
         <div className="config-section">
           <div>
-            <h2>实时语音对话 API</h2>
+            <h2>豆包端到端实时语音</h2>
             <p className="hint">
-              这三个值分别对应豆包控制台中的 APP ID、Access Token 和 Secret Key。
+              使用火山控制台的 API Key 鉴权；O2.0 的规范版本号为 1.2.1.1。
             </p>
           </div>
 
           <label>
-            App ID
+            豆包语音 API Key
             <input
               type="password"
-              value={realtimeAppId}
-              onChange={(event) => setRealtimeAppId(event.currentTarget.value)}
-              placeholder={config?.volc_realtime_app_id_masked ? `当前：${config.volc_realtime_app_id_masked}` : "请输入 API_APP_ID"}
-              required={!config?.volc_realtime_app_id_masked}
+              value={realtimeApiKey}
+              onChange={(event) => setRealtimeApiKey(event.currentTarget.value)}
+              placeholder={config?.volc_realtime_api_key_masked ? `当前：${config.volc_realtime_api_key_masked}` : "请输入 API Key"}
+              required={!config?.volc_realtime_api_key_masked}
             />
           </label>
 
           <label>
-            Access Token
-            <input
-              type="password"
-              value={realtimeAccessKey}
-              onChange={(event) => setRealtimeAccessKey(event.currentTarget.value)}
-              placeholder={
-                config?.volc_realtime_access_key_masked
-                  ? `当前：${config.volc_realtime_access_key_masked}`
-                  : "请输入 Access Token"
-              }
-              required={!config?.volc_realtime_access_key_masked}
-            />
-          </label>
-
-          <label>
-            Secret Key
-            <input
-              type="password"
-              value={realtimeAppKey}
-              onChange={(event) => setRealtimeAppKey(event.currentTarget.value)}
-              placeholder={config?.volc_realtime_app_key_masked ? `当前：${config.volc_realtime_app_key_masked}` : "请输入 Secret Key"}
-              required={!config?.volc_realtime_app_key_masked}
-            />
+            实时模型版本
+            <select value={realtimeModelVersion} onChange={(event) => setRealtimeModelVersion(event.currentTarget.value)}>
+              <option value="1.2.1.1">O2.0（1.2.1.1）</option>
+              <option value="2.2.0.0">SC2.0（2.2.0.0）</option>
+            </select>
           </label>
         </div>
 

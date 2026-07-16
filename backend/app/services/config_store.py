@@ -8,6 +8,7 @@ from backend.app.models import SystemConfigIn, SystemConfigOut
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 CONFIG_PATH = BASE_DIR / "data" / "config.json"
+DEFAULT_REALTIME_MODEL_VERSION = "1.2.1.1"
 
 
 class MissingConfigError(RuntimeError):
@@ -29,36 +30,32 @@ class FileConfigStore:
     def read_public(self) -> SystemConfigOut:
         config = self.read_private()
         api_key = config.dashscope_api_key.strip()
-        realtime_app_id = config.volc_realtime_app_id.strip()
-        realtime_access_key = config.volc_realtime_access_key.strip()
-        realtime_app_key = config.volc_realtime_app_key.strip()
+        realtime_api_key = config.volc_realtime_api_key.strip()
         return SystemConfigOut(
             configured=bool(api_key),
             dashscope_api_key_masked=_mask_key(api_key),
             dashscope_base_url=config.dashscope_base_url,
             dashscope_text_model=config.dashscope_text_model,
-            realtime_configured=bool(realtime_app_id and realtime_access_key and realtime_app_key),
-            volc_realtime_app_id_masked=_mask_key(realtime_app_id),
-            volc_realtime_access_key_masked=_mask_key(realtime_access_key),
-            volc_realtime_app_key_masked=_mask_key(realtime_app_key),
+            realtime_configured=bool(realtime_api_key),
+            volc_realtime_api_key_masked=_mask_key(realtime_api_key),
+            volc_realtime_model_version=(
+                config.volc_realtime_model_version.strip() or DEFAULT_REALTIME_MODEL_VERSION
+            ),
         )
 
     def save(self, config: SystemConfigIn) -> SystemConfigOut:
         current = self.read_private()
         api_key = config.dashscope_api_key.strip() or current.dashscope_api_key.strip()
-        realtime_app_id = config.volc_realtime_app_id.strip() or current.volc_realtime_app_id.strip()
-        realtime_access_key = (
-            config.volc_realtime_access_key.strip() or current.volc_realtime_access_key.strip()
-        )
-        realtime_app_key = config.volc_realtime_app_key.strip() or current.volc_realtime_app_key.strip()
+        realtime_api_key = config.volc_realtime_api_key.strip() or current.volc_realtime_api_key.strip()
         normalized = SystemConfigIn(
             dashscope_api_key=api_key,
             dashscope_base_url=config.dashscope_base_url.strip()
             or "https://dashscope.aliyuncs.com/compatible-mode/v1",
             dashscope_text_model=config.dashscope_text_model.strip() or "qwen-long",
-            volc_realtime_app_id=realtime_app_id,
-            volc_realtime_access_key=realtime_access_key,
-            volc_realtime_app_key=realtime_app_key,
+            volc_realtime_api_key=realtime_api_key,
+            volc_realtime_model_version=(
+                config.volc_realtime_model_version.strip() or DEFAULT_REALTIME_MODEL_VERSION
+            ),
         )
         with self._lock:
             self._path.parent.mkdir(parents=True, exist_ok=True)

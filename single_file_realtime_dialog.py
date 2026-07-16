@@ -3,6 +3,7 @@ import asyncio
 import gzip
 import inspect
 import json
+import os
 import queue
 import signal
 import time
@@ -18,15 +19,13 @@ import websockets
 # 你通常只需要修改这个配置区
 # =========================
 
-# 火山控制台上端到端实时对话服务对应的 App ID 和 Access Key。
-# 不要把密钥提交到公开仓库；如果泄露，请立刻去控制台重置。
-API_APP_ID = "5771223519"
-API_ACCESS_KEY = "jNCpoikygCa73FjUXcCM3KAbU-CpV49K"
+# 从环境变量读取火山控制台创建的 API Key，避免把密钥写入源码。
+API_KEY = os.getenv("VOLC_REALTIME_API_KEY", "")
+MODEL_VERSION = os.getenv("VOLC_REALTIME_MODEL_VERSION", "1.2.1.1")
 
 # 固定服务配置。一般不要改。
 BASE_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
 RESOURCE_ID = "volc.speech.dialog"
-APP_KEY = "PlgvMymc7f3tQnJ6"
 
 # 发音人。可按 README 替换为其他 speaker。
 SPEAKER = "zh_male_xiaotian_jupiter_bigtts"
@@ -194,15 +193,15 @@ class RealtimeDialogClient:
         self.logid = ""
 
     async def connect(self):
+        if not API_KEY:
+            raise RuntimeError("请设置环境变量 VOLC_REALTIME_API_KEY。")
         headers = {
-            "X-Api-App-ID": API_APP_ID,
-            "X-Api-Access-Key": API_ACCESS_KEY,
+            "X-Api-Key": API_KEY,
             "X-Api-Resource-Id": RESOURCE_ID,
-            "X-Api-App-Key": APP_KEY,
             "X-Api-Connect-Id": str(uuid.uuid4()),
         }
         safe_headers = {
-            key: ("***" if key in {"X-Api-App-ID", "X-Api-Access-Key", "X-Api-App-Key"} else value)
+            key: ("***" if key == "X-Api-Key" else value)
             for key, value in headers.items()
         }
         print("url: {}, headers: {}".format(BASE_URL, safe_headers))
@@ -244,6 +243,7 @@ class RealtimeDialogClient:
                 "system_role": build_system_prompt(),
                 "speaking_style": "严格按照 system_role 中的提示词回答，简洁自然。",
                 "extra": {
+                    "model": MODEL_VERSION,
                     "strict_audit": False,
                     "audit_response": "抱歉，这个问题我暂时不能回答。",
                     "recv_timeout": RECV_TIMEOUT,

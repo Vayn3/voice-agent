@@ -90,9 +90,8 @@ class SystemConfigIn(BaseModel):
     dashscope_api_key: str = Field(default="", min_length=0)
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_text_model: str = "qwen-long"
-    volc_realtime_app_id: str = Field(default="", min_length=0)
-    volc_realtime_access_key: str = Field(default="", min_length=0)
-    volc_realtime_app_key: str = Field(default="", min_length=0)
+    volc_realtime_api_key: str = Field(default="", min_length=0)
+    volc_realtime_model_version: str = "1.2.1.1"
 
 
 class SystemConfigOut(BaseModel):
@@ -101,9 +100,8 @@ class SystemConfigOut(BaseModel):
     dashscope_base_url: str
     dashscope_text_model: str
     realtime_configured: bool = False
-    volc_realtime_app_id_masked: str = ""
-    volc_realtime_access_key_masked: str = ""
-    volc_realtime_app_key_masked: str = ""
+    volc_realtime_api_key_masked: str = ""
+    volc_realtime_model_version: str = "1.2.1.1"
 
 
 class ConfigCheckResponse(BaseModel):

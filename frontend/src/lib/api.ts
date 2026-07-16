@@ -75,9 +75,8 @@ export async function saveConfig(input: {
   dashscope_api_key: string;
   dashscope_base_url: string;
   dashscope_text_model: string;
-  volc_realtime_app_id: string;
-  volc_realtime_access_key: string;
-  volc_realtime_app_key: string;
+  volc_realtime_api_key: string;
+  volc_realtime_model_version: string;
 }): Promise<SystemConfig> {
   const response = await fetch(`${API_BASE}/api/config`, {
     method: "PUT",
