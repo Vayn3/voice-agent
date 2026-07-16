@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import gzip
+import inspect
 import json
 import queue
 import signal
@@ -175,6 +176,12 @@ def build_system_prompt() -> str:
     return SYSTEM_PROMPT.strip()
 
 
+async def connect_websocket(url: str, headers: Dict[str, str]):
+    connect_params = inspect.signature(websockets.connect).parameters
+    header_arg = "additional_headers" if "additional_headers" in connect_params else "extra_headers"
+    return await websockets.connect(url, **{header_arg: headers}, ping_interval=None)
+
+
 # =========================
 # WebSocket 实时对话客户端
 # =========================
@@ -200,7 +207,7 @@ class RealtimeDialogClient:
         }
         print("url: {}, headers: {}".format(BASE_URL, safe_headers))
 
-        self.ws = await websockets.connect(BASE_URL, extra_headers=headers, ping_interval=None)
+        self.ws = await connect_websocket(BASE_URL, headers)
         self.logid = self.ws.response_headers.get("X-Tt-Logid")
         print("dialog server response logid: {}".format(self.logid))
 

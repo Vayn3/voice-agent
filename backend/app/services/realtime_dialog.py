@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import inspect
 import json
 import os
 import uuid
@@ -29,7 +30,7 @@ BASE_URL = os.getenv(
     "wss://openspeech.bytedance.com/api/v3/realtime/dialogue",
 )
 RESOURCE_ID = os.getenv("VOLC_REALTIME_RESOURCE_ID", "volc.speech.dialog")
-SPEAKER = os.getenv("VOLC_REALTIME_SPEAKER", "zh_male_xiaotian_jupiter_bigtts")
+SPEAKER = os.getenv("VOLC_REALTIME_SPEAKER", "zh_female_vv_jupiter_bigtts")
 OUTPUT_SAMPLE_RATE = 24000
 CHANNELS = 1
 RECV_TIMEOUT = int(os.getenv("VOLC_REALTIME_RECV_TIMEOUT", "120"))
@@ -228,9 +229,15 @@ def _required_header_config(config: SystemConfigIn) -> tuple[str, str, str]:
     app_key = config.volc_realtime_app_key.strip() or os.getenv("VOLC_REALTIME_APP_KEY", "")
     if not app_id or not access_key or not app_key:
         raise RealtimeConfigError(
-            "请先在系统配置页面填写实时语音对话的 App ID、Access Key 和 App Key。"
+            "请先在系统配置页面填写实时语音对话的 App ID、Access Token 和 Secret Key。"
         )
     return app_id, access_key, app_key
+
+
+async def _connect_websocket(url: str, headers: dict[str, str]) -> Any:
+    connect_params = inspect.signature(websockets.connect).parameters
+    header_arg = "additional_headers" if "additional_headers" in connect_params else "extra_headers"
+    return await websockets.connect(url, **{header_arg: headers}, ping_interval=None)
 
 
 class RealtimeDialogClient:
@@ -249,7 +256,7 @@ class RealtimeDialogClient:
             "X-Api-App-Key": app_key,
             "X-Api-Connect-Id": str(uuid.uuid4()),
         }
-        self.ws = await websockets.connect(BASE_URL, extra_headers=headers, ping_interval=None)
+        self.ws = await _connect_websocket(BASE_URL, headers)
         await self.start_connection()
         await self.start_session()
 

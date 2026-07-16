@@ -31,6 +31,15 @@ export function VoiceQAConsole({
     setStatus("正在连接实时语音服务");
     setRunning(true);
     endingRef.current = false;
+    playbackTimeRef.current = 0;
+
+    try {
+      await prepareOutputAudio();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Audio output initialization failed");
+      setRunning(false);
+      return;
+    }
 
     const websocket = new WebSocket(voiceQAWebSocketUrl(sessionId));
     websocket.binaryType = "arraybuffer";
@@ -68,7 +77,7 @@ export function VoiceQAConsole({
           cleanupVoiceQA();
         }
       } else {
-        playPcmFloat32(event.data);
+        await playPcmFloat32(event.data);
       }
     };
 
@@ -137,10 +146,19 @@ export function VoiceQAConsole({
     setRunning(false);
   }
 
-  function playPcmFloat32(data: ArrayBuffer) {
+  async function prepareOutputAudio() {
     const AudioContextClass = getAudioContextClass();
     const context = outputContextRef.current || new AudioContextClass({ sampleRate: 24000 });
     outputContextRef.current = context;
+    if (context.state === "suspended") {
+      await context.resume();
+    }
+  }
+
+  async function playPcmFloat32(data: ArrayBuffer) {
+    await prepareOutputAudio();
+    const context = outputContextRef.current;
+    if (!context) return;
     const samples = new Float32Array(data);
     const buffer = context.createBuffer(1, samples.length, 24000);
     buffer.copyToChannel(samples, 0);

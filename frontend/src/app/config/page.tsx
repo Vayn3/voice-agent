@@ -102,8 +102,8 @@ function ConfigForm() {
       )}
       {config?.realtime_configured && (
         <p className="hint">
-          当前实时语音配置：App ID {config.volc_realtime_app_id_masked}，Access Key{" "}
-          {config.volc_realtime_access_key_masked}，App Key {config.volc_realtime_app_key_masked}
+          当前实时语音配置：App ID {config.volc_realtime_app_id_masked}，Access Token{" "}
+          {config.volc_realtime_access_key_masked}，Secret Key {config.volc_realtime_app_key_masked}
         </p>
       )}
       {message && (
@@ -145,7 +145,7 @@ function ConfigForm() {
           <div>
             <h2>实时语音对话 API</h2>
             <p className="hint">
-              这三个值分别对应 single_file_realtime_dialog.py 中的 API_APP_ID、API_ACCESS_KEY 和 APP_KEY。
+              这三个值分别对应豆包控制台中的 APP ID、Access Token 和 Secret Key。
             </p>
           </div>
 
@@ -161,7 +161,7 @@ function ConfigForm() {
           </label>
 
           <label>
-            Access Key
+            Access Token
             <input
               type="password"
               value={realtimeAccessKey}
@@ -169,19 +169,19 @@ function ConfigForm() {
               placeholder={
                 config?.volc_realtime_access_key_masked
                   ? `当前：${config.volc_realtime_access_key_masked}`
-                  : "请输入 API_ACCESS_KEY"
+                  : "请输入 Access Token"
               }
               required={!config?.volc_realtime_access_key_masked}
             />
           </label>
 
           <label>
-            App Key
+            Secret Key
             <input
               type="password"
               value={realtimeAppKey}
               onChange={(event) => setRealtimeAppKey(event.currentTarget.value)}
-              placeholder={config?.volc_realtime_app_key_masked ? `当前：${config.volc_realtime_app_key_masked}` : "请输入 APP_KEY"}
+              placeholder={config?.volc_realtime_app_key_masked ? `当前：${config.volc_realtime_app_key_masked}` : "请输入 Secret Key"}
               required={!config?.volc_realtime_app_key_masked}
             />
           </label>
