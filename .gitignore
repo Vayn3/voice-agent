@@ -1,9 +1,7 @@
 __pycache__/
 *.py[cod]
 .env
-data/uploads/
-data/config.json
-data/business.json
+data/
 logs/
 .codex/
 frontend/.next/

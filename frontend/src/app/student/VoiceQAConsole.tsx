@@ -47,6 +47,10 @@ export function VoiceQAConsole({
 
     websocket.onopen = async () => {
       try {
+        if (endingRef.current) {
+          websocket.send(JSON.stringify({ type: "finish" }));
+          return;
+        }
         await startMicrophone(websocket);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "无法打开麦克风");
@@ -127,7 +131,9 @@ export function VoiceQAConsole({
     setStatus("正在结束问答并整理记录");
     endingRef.current = true;
     stopMicrophone();
-    wsRef.current?.send(JSON.stringify({ type: "finish" }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "finish" }));
+    }
   }
 
   function stopMicrophone() {
