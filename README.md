@@ -132,7 +132,24 @@ npm run dev
 http://localhost:3000
 ```
 
-## 4. 停止服务
+## 4. 机器人扬声器（ROS1）
+
+进入学生端的实时问答页面后，后端会把豆包返回的 TTS 音频同时转发给浏览器和 ROS1。发送给机器人的是与 `ros_voice/single_file_realtime_dialog.py` 相同的原始 PCM：`24 kHz`、`单声道`、`s16le`（16-bit little-endian），不会转为 Float32，也不会附加 FDPX 帧头。
+
+默认发布到 `/audio`；若安装了 `audio_common_msgs`，消息类型为 `audio_common_msgs/AudioData`，否则为 `std_msgs/ByteMultiArray`，与现有参考脚本一致。下位机应按 `24000 Hz / 1 channel / s16le` 直接播放 `data` 字段。
+
+在机器人 ROS 环境中启动后端前，先 source 对应工作空间，并确认运行后端的 Python 能够 `import rospy`，再按需配置：
+
+```bash
+export ROS_AUDIO_TOPIC=/audio
+export ROS_AUDIO_NODE_NAME=speaker_publisher
+export ROS_AUDIO_ENABLED=true
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+本地 Windows 调试没有 `rospy` 时，网页问答仍可正常使用；后端会记录警告且不会发布 ROS。若要显式关闭机器人发布，设置 `ROS_AUDIO_ENABLED=false`。
+
+## 5. 停止服务
 
 如果是分别启动，在两个终端里按 `Ctrl+C` 即可。
 
@@ -148,7 +165,7 @@ scripts\stop-dev.cmd
 .\scripts\stop-dev.ps1
 ```
 
-## 5. 系统配置
+## 6. 系统配置
 
 打开前端后，先进入“系统配置”页面，填写：
 
@@ -160,7 +177,7 @@ scripts\stop-dev.cmd
 
 上传报告前，前端会调用 `/api/config/check` 检查配置是否完成；后端在创建分析会话时也会再次检查，避免未配置时误提交任务。
 
-## 6. 使用流程
+## 7. 使用流程
 
 1. 进入“系统配置”，填写 DashScope API Key。
 2. 进入“登录”，使用老师账号登录。
@@ -169,7 +186,7 @@ scripts\stop-dev.cmd
 5. 系统完成分析后，学生端会显示报告概览、问题计划和语音问答 Prompt。
 6. 老师端选择对应课程和学生提交，可以查看报告总结、教师关注点和语音问答 Prompt。
 
-## 7. 主要 API
+## 8. 主要 API
 
 - `GET /api/config`：读取公开配置状态，不返回明文 API Key。
 - `PUT /api/config`：保存系统配置。

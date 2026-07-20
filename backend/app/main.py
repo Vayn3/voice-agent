@@ -38,6 +38,7 @@ from backend.app.services.realtime_dialog import (
     RealtimeDialogClient,
     build_realtime_system_prompt,
 )
+from backend.app.services.ros_speaker import RobotSpeakerPublisher
 from backend.app.store import store
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -397,15 +398,20 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
     )
     transcript = DialogTranscript()
     client = RealtimeDialogClient(system_prompt=system_prompt, config=config)
+    robot_speaker = RobotSpeakerPublisher()
     stop_event = asyncio.Event()
 
     try:
+        # Start before the first TTS response arrives. A missing local ROS
+        # installation is non-fatal, so browser-only development still works.
+        robot_speaker.start()
         await client.connect()
         await websocket.send_json(
             {
                 "type": "ready",
                 "sample_rate": 24000,
-                "sample_format": "float32",
+                "sample_format": "pcm_s16le",
+                "robot_speaker": robot_speaker.active,
                 "message": "实时语音问答已连接",
             }
         )
@@ -430,6 +436,11 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
                 message_type = response.get("message_type")
                 payload_msg = response.get("payload_msg")
                 if message_type == "SERVER_ACK" and isinstance(payload_msg, bytes):
+                    # The model's format=pcm output is raw 24k/mono/s16le.
+                    # ROS and the browser receive these same bytes: no Float32
+                    # conversion and no FDPX framing that a /audio sink would
+                    # otherwise play as noise.
+                    robot_speaker.publish(payload_msg)
                     await websocket.send_bytes(payload_msg)
                     continue
                 if message_type == "SERVER_ERROR":
@@ -484,6 +495,7 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
         except Exception:
             pass
         await client.close()
+        robot_speaker.close()
         try:
             await websocket.close()
         except Exception:

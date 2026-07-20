@@ -77,7 +77,7 @@ export function VoiceQAConsole({
           cleanupVoiceQA();
         }
       } else {
-        await playPcmFloat32(event.data);
+        await playPcmS16Le(event.data);
       }
     };
 
@@ -155,11 +155,16 @@ export function VoiceQAConsole({
     }
   }
 
-  async function playPcmFloat32(data: ArrayBuffer) {
+  async function playPcmS16Le(data: ArrayBuffer) {
     await prepareOutputAudio();
     const context = outputContextRef.current;
     if (!context) return;
-    const samples = new Float32Array(data);
+    const sourcePcm = new DataView(data);
+    const sampleCount = Math.floor(sourcePcm.byteLength / 2);
+    const samples = new Float32Array(sampleCount);
+    for (let index = 0; index < sampleCount; index += 1) {
+      samples[index] = sourcePcm.getInt16(index * 2, true) / 0x8000;
+    }
     const buffer = context.createBuffer(1, samples.length, 24000);
     buffer.copyToChannel(samples, 0);
     const source = context.createBufferSource();

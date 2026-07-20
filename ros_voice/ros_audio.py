@@ -21,7 +21,12 @@ except Exception:
     _HAS_ROS1 = False
     _HAS_AUDIO_DATA_MSG = False
 
-from duplex_audio import build_stop_message, pack_audio_frame
+try:
+    # 后端以 ``ros_voice.ros_audio`` 作为包导入时使用相对导入；
+    # 直接执行 ros_voice 下的脚本时保留原有的绝对导入方式。
+    from .duplex_audio import build_stop_message, pack_audio_frame
+except ImportError:
+    from duplex_audio import build_stop_message, pack_audio_frame
 
 
 class Ros1SpeakerStream:
