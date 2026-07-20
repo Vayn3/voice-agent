@@ -255,7 +255,7 @@ class AudioConfig:
     device_name: Optional[str] = None
     device_index: Optional[int] = None
     mode: str = "pyaudio"
-    ros1_topic: str = "/robot/speaker/audio"
+    ros1_topic: str = "/audio"
     ros1_node_name: str = "speaker_publisher"
     ros1_queue_size: int = 10
     ros1_latch: bool = False

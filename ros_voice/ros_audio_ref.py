@@ -21,16 +21,13 @@ except Exception:
     _HAS_ROS1 = False
     _HAS_AUDIO_DATA_MSG = False
 
-try:
-    from .duplex_audio import build_stop_message, pack_audio_frame
-except ImportError:
-    from duplex_audio import build_stop_message, pack_audio_frame
+from duplex_audio import build_stop_message, pack_audio_frame
 
 
 class Ros1SpeakerStream:
     def __init__(
         self,
-        topic: str = "/audio",
+        topic: str = "/robot/speaker/audio",
         node_name: str = "speaker_publisher",
         queue_size: int = 10,
         latched: bool = False,

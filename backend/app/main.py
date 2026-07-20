@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import time
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
@@ -39,6 +40,14 @@ from backend.app.services.realtime_dialog import (
     build_realtime_system_prompt,
 )
 from backend.app.store import store
+
+try:
+    from ros_voice.ros_audio import Ros1SpeakerStream
+
+    _ROS_AVAILABLE = True
+except Exception:
+    Ros1SpeakerStream = None  # type: ignore[assignment]
+    _ROS_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
@@ -399,6 +408,25 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
     client = RealtimeDialogClient(system_prompt=system_prompt, config=config)
     stop_event = asyncio.Event()
 
+    # 创建 ROS 扬声器发布者（将 TTS 音频发布到下位机机器人播放）
+    ros_speaker = None
+    if _ROS_AVAILABLE:
+        try:
+            ros_speaker = Ros1SpeakerStream(
+                topic="/audio",
+                node_name="voice_qa_speaker",
+                queue_size=10,
+                latched=False,
+                control_topic="/audio/control",
+                duplex_mode="half",
+                sample_rate=24000,
+                channels=1,
+                sample_width=2,
+            )
+            print("[ROS] 语音问答：已创建 ROS 扬声器发布者 -> /audio")
+        except Exception as exc:
+            print(f"[ROS] 语音问答：无法创建 ROS 扬声器发布者: {exc}")
+
     try:
         await client.connect()
         await websocket.send_json(
@@ -431,6 +459,14 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
                 payload_msg = response.get("payload_msg")
                 if message_type == "SERVER_ACK" and isinstance(payload_msg, bytes):
                     await websocket.send_bytes(payload_msg)
+                    # 将 TTS 音频通过线程池发布到 ROS（避免 asyncio 中直接 publish）
+                    if ros_speaker is not None:
+                        try:
+                            await asyncio.get_running_loop().run_in_executor(
+                                None, ros_speaker.write, payload_msg
+                            )
+                        except Exception:
+                            pass
                     continue
                 if message_type == "SERVER_ERROR":
                     await websocket.send_json({"type": "error", "message": str(response)})
@@ -440,6 +476,15 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
                     continue
 
                 event = response.get("event")
+
+                # 用户开始说话 → 打断下位机当前播放（避免机器人继续播旧回复）
+                if event == 450 and ros_speaker is not None:
+                    try:
+                        uid = int(time.time() * 1000) & 0x7FFFFFFF
+                        ros_speaker.interrupt(uid, "user_speech")
+                    except Exception:
+                        pass
+
                 transcript.absorb_text(event, payload_msg)
                 final_text = transcript.finalize_event(event)
                 if final_text:
@@ -484,6 +529,14 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
         except Exception:
             pass
         await client.close()
+        # 关闭 ROS 扬声器发布者，通知下位机停止播放
+        if ros_speaker is not None:
+            try:
+                uid = int(time.time() * 1000) & 0x7FFFFFFF
+                ros_speaker.interrupt(uid, "session_end")
+                ros_speaker.close()
+            except Exception:
+                pass
         try:
             await websocket.close()
         except Exception:

@@ -4,6 +4,8 @@ __pycache__/
 data/uploads/
 data/config.json
 data/business.json
+data/mysql/
+data/mysql.log
 logs/
 .codex/
 frontend/.next/

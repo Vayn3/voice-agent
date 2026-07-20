@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import signal
+import struct
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -21,6 +22,7 @@ from audio_constants import (
     KWS_PRIORITY,
     LLM_KWS_PATTERNS,
     REPEAT_ACTION_COUNT,
+    TARGET_CHANNELS,
     TARGET_CHUNK_SAMPLES,
     TARGET_SAMPLE_RATE,
     TARGET_SAMPLE_WIDTH,
@@ -64,10 +66,27 @@ SYSTEM_PROMPT = (
 
 # 音频配置。
 # - 上行：麦克风采集后统一重采样到 16k / 单声道 / 16-bit PCM 再发给大模型。
-# - 下行：服务端 TTS 输出 24k / 单声道 / s16le（火山 "pcm" 即 s16le），原始字节直接发布/播放。
+# - 下行：服务端 TTS 输出 24k / 单声道 / Float32 PCM（火山 "pcm" 实为 float32，前端
+#   VoiceQAConsole 用 Float32Array 播放即证明）。ROS(audio_common_msgs/AudioData 为
+#   int16[]) 与本地 PyAudio(paInt16) 播放链路均按 int16(s16le) 处理，故写入前需先把
+#   Float32 转成 int16，否则机器人/扬声器会播放出电音或静音。
 OUTPUT_SAMPLE_RATE = 24000
 CHANNELS = 1
 CHUNK = 3200  # 本地 PyAudio 播放缓冲；ROS 发布模式下不影响
+
+
+def float32_pcm_to_int16(float_bytes: bytes) -> bytes:
+    """火山引擎实时对话下行 TTS 实际为 Float32 PCM（4 字节/采样，范围 [-1,1]），
+    但 ROS(audio_common_msgs/AudioData 为 int16[]) 与本地 PyAudio(paInt16) 均按
+    int16(s16le) 处理。这里把 4 字节 float 转成 2 字节 int16，避免机器人/扬声器
+    播放出电音或静音。"""
+    if not float_bytes or len(float_bytes) % 4 != 0:
+        return float_bytes  # 非 4 字节对齐，原样兜底
+    n = len(float_bytes) // 4
+    floats = struct.unpack("<%df" % n, float_bytes[: n * 4])
+    return b"".join(
+        struct.pack("<h", int(max(-1.0, min(1.0, x)) * 32767)) for x in floats
+    )
 
 # 服务端静默等待时间，范围通常是 [10, 120]。
 RECV_TIMEOUT = 120
@@ -752,6 +771,8 @@ class SingleFileDialog:
             try:
                 audio_data = self.audio_queue.get(timeout=1.0)
                 if audio_data:
+                    # 下行 TTS 为 Float32 PCM，ROS/PyAudio 播放端按 int16 处理，先转换
+                    audio_data = float32_pcm_to_int16(audio_data)
                     self.output_stream.write(audio_data)
             except queue.Empty:
                 time.sleep(0.05)
