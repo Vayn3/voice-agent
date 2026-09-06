@@ -65,6 +65,7 @@ $env:VOICE_TA_DB_PASSWORD="root"
 在项目根目录运行这一条命令即可同时启动前后端：
 
 ```powershell
+conda activate voiceTA
 python scripts/run_dev.py
 ```
 
