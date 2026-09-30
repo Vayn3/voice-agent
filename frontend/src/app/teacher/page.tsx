@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { RequireRole } from "@/app/RequireRole";
+import { CourseRequirements, FinalScore, LabAssessment } from "@/app/LabAssessment";
 import { createCourse, getCourse, getSession, listCourses, listQARecords } from "@/lib/api";
 import type { AnalysisResponse, CourseDetail, CourseSummary, QARecord, SessionSummary, User } from "@/types/api";
 
@@ -232,7 +233,7 @@ function TeacherCourses({
             </div>
             <div className="brief-item">
               <strong>要求：</strong>
-              <p>{selectedCourse.assignment_requirements}</p>
+              <CourseRequirements course={selectedCourse} />
             </div>
           </div>
         ) : (
@@ -256,6 +257,7 @@ function TeacherCourses({
                 >
                   <strong>{submission.student_name}</strong>
                   <span>{submission.original_filename}</span>
+                  <span>阶段：{detail.course.assignment_spec?.stages?.find(s => s.id === submission.stage_id)?.name || "全部阶段/课程作业"}</span>
                   <span>状态：{submissionStatus(submission)}</span>
                 </button>
               ))}
@@ -336,6 +338,7 @@ function ReportPreview({ report }: { report: AnalysisResponse | null }) {
         </div>
       </div>
 
+      <LabAssessment result={result} />
       <div className="report-tabs">
         <button className={activeTab === "questions" ? "active" : ""} type="button" onClick={() => setActiveTab("questions")}>
           生成问题
@@ -412,6 +415,7 @@ function ReportPreview({ report }: { report: AnalysisResponse | null }) {
       {activeTab === "summary" && (
         <div className="report-section">
           <h4>问答总结报告</h4>
+          <FinalScore result={result} />
           {result?.voice_qa_summary ? (
             <p className="qa-summary">{result.voice_qa_summary}</p>
           ) : (
@@ -425,6 +429,8 @@ function ReportPreview({ report }: { report: AnalysisResponse | null }) {
 
 function submissionStatus(submission: SessionSummary) {
   if (submission.status !== "completed") return statusText(submission.status);
+  if (submission.final_assessment_status === "insufficient_qa") return "答辩尚不完整，待补充";
+  if (typeof submission.final_score === "number") return `已完成评分：${submission.final_score}/100`;
   return submission.voice_qa_summary_ready ? "已完成问答总结" : "报告已分析";
 }
 

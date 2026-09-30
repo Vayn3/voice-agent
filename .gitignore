@@ -10,3 +10,7 @@ logs/
 .codex/
 frontend/.next/
 frontend/node_modules/
+frontend/*.tsbuildinfo
+outputs/compiler-taskbook-original.txt
+outputs/compiler-live-acceptance.json
+outputs/compiler-course-teacher.png

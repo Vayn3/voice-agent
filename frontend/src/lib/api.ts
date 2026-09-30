@@ -75,6 +75,7 @@ export async function saveConfig(input: {
   dashscope_api_key: string;
   dashscope_base_url: string;
   dashscope_text_model: string;
+  dashscope_code_model: string;
   volc_realtime_api_key: string;
   volc_realtime_model_version: string;
 }): Promise<SystemConfig> {

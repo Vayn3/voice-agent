@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { RequireRole } from "@/app/RequireRole";
+import { CourseRequirements, FinalScore, LabAssessment } from "@/app/LabAssessment";
 import {
   checkConfig,
   createCourseSession,
   enrollCourse,
   getSession,
   listQARecords,
-  listStudentCourses
+  listStudentCourses,
+  listCourses
 } from "@/lib/api";
-import type { AnalysisResponse, QARecord, StudentCourse, User } from "@/types/api";
+import type { AnalysisResponse, CourseSummary, QARecord, SessionSummary, StudentCourse, User } from "@/types/api";
 
 type StudentView = "courses" | "join";
 type CourseDetailMode = "overview" | "upload" | "records" | "summary";
@@ -37,6 +39,7 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [availableCourses, setAvailableCourses] = useState<CourseSummary[]>([]);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.course.id === selectedCourseId),
@@ -57,7 +60,17 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
 
   useEffect(() => {
     refreshCourses();
+    listCourses().then(setAvailableCourses).catch(() => {});
   }, [currentUser.id]);
+
+  useEffect(() => {
+    if (!latestSubmission?.id) return;
+    let cancelled = false;
+    getSession(latestSubmission.id).then(payload => {
+      if (!cancelled) setSession(current => current?.session.course_id === selectedCourseId ? current : payload);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [latestSubmission?.id, selectedCourseId]);
 
   useEffect(() => {
     if (!session?.session.id) return;
@@ -197,6 +210,11 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
 
       {view === "join" ? (
         <form className="form" onSubmit={handleJoinCourse}>
+          <div className="brief-list">
+            {availableCourses.map(course => <div className="brief-item" key={course.id}>
+              <strong>{course.name}</strong><p>教师：{course.teacher_name} · 课程码：{course.id}</p>
+            </div>)}
+          </div>
           <label>
             课程码
             <input name="course_code" placeholder="请输入老师提供的课程码" required />
@@ -261,6 +279,13 @@ function StudentWorkspace({ currentUser }: { currentUser: User }) {
                   setMessage("");
                 }}
                 onFileNameChange={setFileName}
+                submissions={selectedItem?.submissions || []}
+                onSelectSubmission={async (id) => {
+                  try {
+                    setSession(await getSession(id));
+                    setDetailMode("overview");
+                  } catch (error) { setMessage(error instanceof Error ? error.message : "读取提交失败"); }
+                }}
                 onOpenReportMode={openReportMode}
                 onSubmit={handleSubmit}
               />
@@ -289,6 +314,8 @@ function StudentCourseDetail({
   submitting,
   onEnterUpload,
   onFileNameChange,
+  submissions,
+  onSelectSubmission,
   onOpenReportMode,
   onSubmit
 }: {
@@ -306,13 +333,15 @@ function StudentCourseDetail({
   submitting: boolean;
   onEnterUpload: () => void;
   onFileNameChange: (name: string) => void;
+  submissions: SessionSummary[];
+  onSelectSubmission: (id: string) => Promise<void>;
   onOpenReportMode: (mode: CourseDetailMode) => Promise<void>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
   const hasSubmitted = Boolean(activeSubmission);
   const isPendingOrProcessing =
     activeSubmission?.status === "pending" || activeSubmission?.status === "processing" || isAnalyzing;
-  const isAnalyzed = activeSubmission?.status === "completed" && !activeSubmission.voice_qa_summary_ready;
+  const isAnalyzed = activeSubmission?.status === "completed" && (!activeSubmission.voice_qa_summary_ready || activeSubmission.final_assessment_status === "insufficient_qa");
   const isSummarized = Boolean(activeSubmission?.voice_qa_summary_ready);
   const canUpload = !hasSubmitted || activeSubmission?.status === "failed" || detailMode === "upload";
 
@@ -327,14 +356,25 @@ function StudentCourseDetail({
         </div>
         <div className="brief-item">
           <strong>课程要求：</strong>
-          <p>{selectedCourse.assignment_requirements}</p>
+          <CourseRequirements course={selectedCourse} />
         </div>
         <div className="brief-item">
           <strong>我的提交状态：</strong>{status}
         </div>
       </div>
 
+      {submissions.length ? <label>阶段提交历史（每次提交独立保留）
+        <select value={activeSessionId} onChange={event => onSelectSubmission(event.currentTarget.value)}>
+          {submissions.map(item => <option value={item.id} key={item.id}>
+            {selectedCourse.assignment_spec?.stages?.find(stage => stage.id === item.stage_id)?.name || "全部阶段"} · {item.original_filename} · {studentSubmissionStatus(item)} · {new Date(item.created_at).toLocaleString()}
+          </option>)}
+        </select>
+      </label> : null}
+      {activeSubmission?.error && <p className="message error">{activeSubmission.error}</p>}
+      {detailMode === "overview" && <LabAssessment result={activeResult} />}
+
       <div className="student-action-row">
+        {hasSubmitted && !isPendingOrProcessing && <button className="secondary-button" type="button" onClick={onEnterUpload}>提交其他阶段 / 新版本</button>}
         {!hasSubmitted && (
           <button className="primary-button" type="button" onClick={onEnterUpload}>
             提交报告
@@ -385,21 +425,28 @@ function StudentCourseDetail({
       {canUpload && (
         <form className="form student-upload-form" onSubmit={onSubmit}>
           <input name="student_name" type="hidden" value={currentUser.display_name} />
+          <label>本次提交与评分范围
+            <select name="stage_id" defaultValue="all">
+              <option value="all">全部实验与课设阶段（联合提交）</option>
+              {selectedCourse.assignment_spec?.stages?.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
+            </select>
+            <small>阶段提交只评价本阶段；综合评分请选择全部阶段，并提交各阶段源码、测试和报告。</small>
+          </label>
           <label className="dropzone">
             <input
-              name="report_file"
+              name="submission_files"
               type="file"
-              accept=".pdf,.doc,.docx,.md,.txt"
+              multiple
               required
               onChange={(event) =>
-                onFileNameChange(event.currentTarget.files?.[0]?.name || "选择或拖入课程报告文件")
+                onFileNameChange(Array.from(event.currentTarget.files || []).map(file => file.name).join("、") || "选择源码、报告或ZIP项目包")
               }
             />
             <strong>{fileName}</strong>
-            <small>支持 PDF、Word、Markdown、TXT</small>
+            <small>可多选源代码（C/C++、.l、.y、.g4、Java、Python、LLVM等）、PDF、Word、文本或ZIP。单文件20MB，展开合计40MB、200个文件。旧版.doc需本机转换器。</small>
           </label>
           <button className="primary-button" type="submit" disabled={isAnalyzing || submitting}>
-            {isAnalyzing || submitting ? "正在分析报告..." : "上传并分析报告"}
+            {isAnalyzing || submitting ? "正在联合分析源码与文档..." : "上传并分析实验材料"}
           </button>
         </form>
       )}
@@ -430,6 +477,7 @@ function StudentCourseDetail({
           <div className="panel-head">
             <h3>问答总结报告</h3>
           </div>
+          <FinalScore result={activeResult} />
           {activeResult?.voice_qa_summary ? (
             <p className="qa-summary">{activeResult.voice_qa_summary}</p>
           ) : (
@@ -443,6 +491,8 @@ function StudentCourseDetail({
 
 function studentSubmissionStatus(submission: StudentCourse["latest_submission"]) {
   if (!submission) return "未提交报告";
+  if (submission.final_assessment_status === "insufficient_qa") return "答辩尚不完整，请补充问答";
+  if (typeof submission.final_score === "number") return `已完成评分：${submission.final_score}/100`;
   if (submission.voice_qa_summary_ready) return "已完成问答总结";
   const map: Record<string, string> = {
     pending: "等待分析",

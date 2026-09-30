@@ -49,6 +49,7 @@ function ConfigForm() {
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [model, setModel] = useState(DEFAULT_MODEL);
+  const [codeModel, setCodeModel] = useState("qwen3-coder-plus");
   const [realtimeApiKey, setRealtimeApiKey] = useState("");
   const [realtimeModelVersion, setRealtimeModelVersion] = useState(DEFAULT_REALTIME_MODEL_VERSION);
   const [message, setMessage] = useState("");
@@ -60,6 +61,7 @@ function ConfigForm() {
         setConfig(payload);
         setBaseUrl(payload.dashscope_base_url || DEFAULT_BASE_URL);
         setModel(payload.dashscope_text_model || DEFAULT_MODEL);
+        setCodeModel(payload.dashscope_code_model || "qwen3-coder-plus");
         setRealtimeModelVersion(payload.volc_realtime_model_version || DEFAULT_REALTIME_MODEL_VERSION);
       })
       .catch(() => setMessage("后端服务未连接，请确认 FastAPI 已启动。"));
@@ -74,6 +76,7 @@ function ConfigForm() {
         dashscope_api_key: apiKey,
         dashscope_base_url: baseUrl,
         dashscope_text_model: model,
+        dashscope_code_model: codeModel,
         volc_realtime_api_key: realtimeApiKey,
         volc_realtime_model_version: realtimeModelVersion
       });
@@ -114,7 +117,7 @@ function ConfigForm() {
         <div className="config-section">
           <div>
             <h2>DashScope 文本模型</h2>
-            <p className="hint">用于解析报告、生成提问计划和问答总结。</p>
+            <p className="hint">文档模型读取PDF/Word；代码审查模型分析全部源码、联合审查、生成答辩问题和评分。</p>
           </div>
 
           <label>
@@ -134,8 +137,13 @@ function ConfigForm() {
           </label>
 
           <label>
-            文本模型
+            文档模型（支持fileid的qwen-long）
             <input value={model} onChange={(event) => setModel(event.currentTarget.value)} required />
+          </label>
+          <label>
+            代码审查与评分模型
+            <input value={codeModel} onChange={(event) => setCodeModel(event.currentTarget.value)} required />
+            <small>默认qwen3-coder-plus，也可填写账号支持的通用模型；源码按完整文本传入。</small>
           </label>
         </div>
 

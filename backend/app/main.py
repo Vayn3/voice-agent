@@ -33,6 +33,7 @@ from backend.app.models import (
 )
 from backend.app.services.config_store import MissingConfigError, config_store
 from backend.app.services.dashscope_analyzer import analyze_report_file, summarize_voice_qa
+from backend.app.services.submission_files import SubmissionError, collect_submission, public_files
 from backend.app.services.realtime_dialog import (
     DialogTranscript,
     RealtimeConfigError,
@@ -51,7 +52,6 @@ except Exception:
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
-ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".md", ".txt"}
 
 app = FastAPI(title="课程报告智能助教 API", version="0.2.0")
 app.add_middleware(
@@ -76,10 +76,14 @@ def _summary(session: ReportSession) -> SessionSummary:
         assignment_name=session.assignment_name,
         assignment_requirements=session.assignment_requirements,
         original_filename=session.original_filename,
+        stage_id=session.stage_id,
+        submission_files=public_files(session.submission_files),
         created_at=session.created_at,
         status=session.status,
         error=session.error,
         voice_qa_summary_ready=isinstance(session.result, dict) and bool(session.result.get("voice_qa_summary")),
+        final_score=(session.result or {}).get("final_assessment", {}).get("final_score"),
+        final_assessment_status=(session.result or {}).get("final_assessment", {}).get("status"),
     )
 
 
@@ -92,6 +96,7 @@ def _course_summary(course: Course) -> CourseSummary:
         teacher_user_id=course.teacher_user_id,
         assignment_name=course.assignment_name,
         assignment_requirements=course.assignment_requirements,
+        assignment_spec=course.assignment_spec,
         created_at=course.created_at,
         submission_count=stats["submission_count"],
         student_count=stats["student_count"],
@@ -114,6 +119,9 @@ def _analyze_in_background(session_id: str) -> None:
             course_name=session.course_name,
             assignment_name=session.assignment_name,
             assignment_requirements=session.assignment_requirements,
+            assignment_spec=session.assignment_spec,
+            stage_id=session.stage_id,
+            submission_files=session.submission_files,
             config=config,
         )
         store.mark_completed(session_id, result)
@@ -234,11 +242,16 @@ async def create_course_session(
     background_tasks: BackgroundTasks,
     student_name: str = Form(...),
     student_user_id: str | None = Form(None),
-    report_file: UploadFile = File(...),
+    report_file: UploadFile | None = File(None),
+    submission_files: list[UploadFile] = File(default=[]),
+    stage_id: str = Form("all"),
 ) -> AnalysisResponse:
     course = store.get_course(course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="课程不存在。")
+
+    if stage_id != "all" and stage_id not in {s["id"] for s in course.assignment_spec.get("stages", [])}:
+        raise HTTPException(status_code=400, detail="所选实验阶段不属于本课程。")
 
     if student_user_id:
         store.enroll_course(course.id, student_user_id, student_name)
@@ -250,6 +263,9 @@ async def create_course_session(
         assignment_name=course.assignment_name,
         assignment_requirements=course.assignment_requirements,
         report_file=report_file,
+        submission_files=submission_files,
+        stage_id=stage_id,
+        assignment_spec=course.assignment_spec,
         course_id=course.id,
         student_user_id=student_user_id,
     )
@@ -263,7 +279,8 @@ async def create_session(
     assignment_name: str = Form(...),
     assignment_requirements: str = Form(""),
     student_user_id: str | None = Form(None),
-    report_file: UploadFile = File(...),
+    report_file: UploadFile | None = File(None),
+    submission_files: list[UploadFile] = File(default=[]),
 ) -> AnalysisResponse:
     return await _create_report_session(
         background_tasks=background_tasks,
@@ -272,6 +289,7 @@ async def create_session(
         assignment_name=assignment_name,
         assignment_requirements=assignment_requirements,
         report_file=report_file,
+        submission_files=submission_files,
         student_user_id=student_user_id,
     )
 
@@ -283,7 +301,10 @@ async def _create_report_session(
     course_name: str,
     assignment_name: str,
     assignment_requirements: str,
-    report_file: UploadFile,
+    report_file: UploadFile | None,
+    submission_files: list[UploadFile] | None = None,
+    stage_id: str = "all",
+    assignment_spec: dict | None = None,
     course_id: str | None = None,
     student_user_id: str | None = None,
 ) -> AnalysisResponse:
@@ -291,13 +312,6 @@ async def _create_report_session(
         config_store.require_private()
     except MissingConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    suffix = Path(report_file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"暂不支持 {suffix or '无扩展名'} 文件，请上传 PDF、Word、Markdown 或文本文件。",
-        )
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     temp_session = ReportSession(
@@ -307,16 +321,27 @@ async def _create_report_session(
         course_name=course_name.strip(),
         assignment_name=assignment_name.strip(),
         assignment_requirements=assignment_requirements.strip(),
-        original_filename=report_file.filename or f"report{suffix}",
+        original_filename="提交材料",
         stored_path=UPLOAD_DIR / "pending",
+        stage_id=stage_id,
+        assignment_spec=assignment_spec or {},
     )
-    stored_path = UPLOAD_DIR / f"{temp_session.id}{suffix}"
-
-    with stored_path.open("wb") as output:
-        shutil.copyfileobj(report_file.file, output)
-
-    temp_session.stored_path = stored_path
-    session = store.replace_for_student_course(temp_session) if course_id else store.add(temp_session)
+    directory = UPLOAD_DIR / temp_session.id
+    files = list(submission_files or []) + ([report_file] if report_file else [])
+    try:
+        manifest_path, manifest = await collect_submission(files, directory)
+        temp_session.stored_path = manifest_path
+        temp_session.submission_files = manifest
+        names = [item["name"] for item in manifest if item["kind"] != "excluded"]
+        temp_session.original_filename = (names[0] + (f" 等{len(names)}个文件" if len(names) > 1 else ""))[:255]
+        session = store.add(temp_session)
+    except Exception as exc:
+        # Only this newly created UUID directory may be removed.
+        if directory.resolve().parent == UPLOAD_DIR.resolve() and directory.exists():
+            shutil.rmtree(directory)
+        if isinstance(exc, SubmissionError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise
     background_tasks.add_task(_analyze_in_background, session.id)
     return AnalysisResponse(session=_summary(session), result=None)
 
@@ -380,6 +405,7 @@ def list_student_courses(student_user_id: str) -> list[StudentCourse]:
                 if (session := store.latest_for_student_course(student_user_id, course.id)) is not None
                 else None
             ),
+            submissions=[_summary(s) for s in store.list_student_submissions(student_user_id, course.id)],
         )
         for course in courses
     ]
@@ -400,9 +426,14 @@ async def voice_qa_websocket(websocket: WebSocket, session_id: str) -> None:
 
     result = session.result
     config = config_store.read_private()
+    question_plan = result.get("question_plan") or []
+    previous_assessment = result.get("final_assessment") or {}
+    if previous_assessment.get("status") == "insufficient_qa":
+        remaining = set(previous_assessment.get("missing_required_questions") or [])
+        question_plan = [q for q in question_plan if q.get("id") in remaining]
     system_prompt = build_realtime_system_prompt(
         str(result.get("voice_qa_prompt") or ""),
-        result.get("question_plan") or [],
+        question_plan,
     )
     transcript = DialogTranscript()
     client = RealtimeDialogClient(system_prompt=system_prompt, config=config)
@@ -560,21 +591,27 @@ def create_voice_qa_summary(session_id: str) -> VoiceQASummaryResponse:
     except MissingConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    summary = summarize_voice_qa(
-        file_path=session.stored_path,
-        student_name=session.student_name,
-        course_name=session.course_name,
-        assignment_name=session.assignment_name,
-        assignment_requirements=session.assignment_requirements,
-        report_analysis=session.result,
-        qa_records=[record.model_dump(mode="json") for record in qa_records],
-        config=config,
-    )
+    try:
+        assessment = summarize_voice_qa(
+            file_path=session.stored_path,
+            student_name=session.student_name,
+            course_name=session.course_name,
+            assignment_name=session.assignment_name,
+            assignment_requirements=session.assignment_requirements,
+            report_analysis=session.result,
+            qa_records=[record.model_dump(mode="json") for record in qa_records],
+            config=config,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"问答评分生成失败：{exc}") from exc
+    summary = assessment["summary"]
     next_result = dict(session.result or {})
     next_result["voice_qa_summary"] = summary
+    next_result["final_assessment"] = assessment
     updated = store.update_result(session_id, next_result) or session
     return VoiceQASummaryResponse(
         session=_summary(updated),
         qa_records=qa_records,
         summary=summary,
+        assessment=assessment,
     )

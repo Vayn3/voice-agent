@@ -14,6 +14,18 @@
 
 当前版本先跑通“登录校验 -> 老师创建课程与要求 -> 学生提交报告 -> 调用 DashScope 文件解析 -> 生成实时语音问答 Prompt -> 老师查看总结”这条主流程。
 
+现已内置 **编译技术实验 / 胡雯蔷**，课程码 **COMP2026**，包含任务书的3个基础实验和4个编译器课程设计阶段。后端启动时自动将Git中的 `data/courses/compiler-2026.json` 同步到本机MySQL；默认老师账号可见，学生通过课程码加入。支持分阶段多文件/ZIP源码与报告联合分析、提交历史、逐任务完成度与证据、语音答辩及最终建议评分。详细要求、架构分析与验证见 [编译技术实验系统分析与使用说明](docs/编译技术实验系统分析与使用说明.md)。
+
+其他电脑拉取当前功能分支后，可先同步课程（无需导入整个数据库或学生数据）：
+
+```powershell
+git fetch origin
+git switch test2
+git pull --ff-only origin test2
+conda activate voiceTA
+python scripts/seed_courses.py
+```
+
 ## 1. 首次准备
 
 ```powershell
@@ -156,6 +168,7 @@ scripts\stop-dev.cmd
 - DashScope API Key
 - Base URL，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - 文本模型，默认 `qwen-long`
+- 代码审查与评分模型，默认 `qwen3-coder-plus`，也可改为账号支持的通用模型；源码以完整文本分块传入，PDF/DOCX使用文档模型。旧版DOC需要本机Word、LibreOffice或antiword，缺少时请另存DOCX/PDF。
 
 配置会保存到本地 `data/config.json`。该文件已加入 `.gitignore`，不会进入版本库。
 
@@ -186,3 +199,7 @@ scripts\stop-dev.cmd
 - `POST /api/sessions/{session_id}/qa-records`：新增报告问答记录。
 
 上传文件会保存在 `data/uploads/`，课程、提交记录、用户和问答记录会保存在 MySQL。`data/uploads/` 已加入 `.gitignore`；后续可以继续替换为对象存储和异步队列。
+
+源码可多选上传，支持C/C++、`.l`、`.y`、`.g4`、Java、Python、LLVM、汇编及构建/测试文本，或用ZIP保留项目目录。单文件20MiB，展开总量40MiB/200个文件，可读文本120万字符；超限请按阶段拆分。系统静态审查全部可读材料并显示排除项，不执行上传代码。每次提交与答辩独立保留。阶段提交评分仅针对该阶段；综合评分请选择全部阶段并提交所有材料。
+
+离线验证：`python -m unittest discover -s tests -v`；真实模型验收（调用计费API、使用非学生样例）：`python scripts/smoke_compiler_analysis.py --live`。补充建议评分为作业60%、答辩30%、反思10%，任务书未规定此权重；必答覆盖不足时不生成最终分，分数供教师复核。

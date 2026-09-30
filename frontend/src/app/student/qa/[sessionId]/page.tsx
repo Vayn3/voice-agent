@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RequireRole } from "@/app/RequireRole";
+import { FinalScore } from "@/app/LabAssessment";
 import { getSession } from "@/lib/api";
 import type { AnalysisResponse } from "@/types/api";
 import { VoiceQAConsole } from "../../VoiceQAConsole";
@@ -48,11 +49,14 @@ function StudentQAWorkspace() {
         <p className="message">报告还未分析完成，请稍后再进入问答。</p>
       )}
       {session?.session.status === "completed" && (
+        <>
         <VoiceQAConsole
           sessionId={session.session.id}
           summary={session.result?.voice_qa_summary || ""}
           onSummary={refreshSession}
         />
+        <FinalScore result={session.result} />
+        </>
       )}
     </section>
   );

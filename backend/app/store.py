@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from backend.app.database import (
     CourseEnrollmentRow,
@@ -20,17 +20,7 @@ from backend.app.models import AnalysisStatus, Course, QARecord, ReportSession, 
 
 class MySQLStore:
     def replace_for_student_course(self, session: ReportSession) -> ReportSession:
-        with SessionLocal() as db:
-            existing_query = select(ReportRow.id).where(ReportRow.course_id == session.course_id)
-            if session.student_user_id:
-                existing_query = existing_query.where(ReportRow.student_user_id == session.student_user_id)
-            else:
-                existing_query = existing_query.where(ReportRow.student_name == session.student_name)
-            existing_ids = list(db.scalars(existing_query).all())
-            if existing_ids:
-                db.execute(delete(QARecordRow).where(QARecordRow.report_id.in_(existing_ids)))
-                db.execute(delete(ReportRow).where(ReportRow.id.in_(existing_ids)))
-                db.commit()
+        """Compatibility entry point: retain every submission and its defense history."""
         return self.add(session)
 
     def add(self, session: ReportSession) -> ReportSession:
@@ -46,6 +36,9 @@ class MySQLStore:
                     assignment_requirements=session.assignment_requirements,
                     original_filename=session.original_filename,
                     stored_path=str(session.stored_path),
+                    stage_id=session.stage_id,
+                    submission_files=session.submission_files,
+                    assignment_spec=session.assignment_spec,
                     created_at=session.created_at,
                     status=session.status,
                     result=session.result,
@@ -85,6 +78,13 @@ class MySQLStore:
             )
             return _report_from_row(row) if row else None
 
+    def list_student_submissions(self, student_user_id: str, course_id: str) -> list[ReportSession]:
+        with SessionLocal() as db:
+            rows = db.scalars(select(ReportRow).where(
+                ReportRow.course_id == course_id, ReportRow.student_user_id == student_user_id
+            ).order_by(ReportRow.created_at.desc())).all()
+            return [_report_from_row(row) for row in rows]
+
     def mark_processing(self, session_id: str) -> None:
         self._update_status(session_id, AnalysisStatus.processing, error=None)
 
@@ -114,6 +114,7 @@ class MySQLStore:
                     teacher_user_id=course.teacher_user_id,
                     assignment_name=course.assignment_name,
                     assignment_requirements=course.assignment_requirements,
+                    assignment_spec=course.assignment_spec,
                     created_at=course.created_at,
                 )
             )
@@ -320,6 +321,9 @@ def _report_from_row(row: ReportRow) -> ReportSession:
         assignment_requirements=row.assignment_requirements,
         original_filename=row.original_filename,
         stored_path=Path(row.stored_path),
+        stage_id=row.stage_id or "all",
+        submission_files=row.submission_files or [],
+        assignment_spec=row.assignment_spec or {},
         created_at=row.created_at,
         status=row.status,
         result=row.result,
@@ -330,7 +334,7 @@ def _report_from_row(row: ReportRow) -> ReportSession:
 def _latest_rows_by_student(rows: list[ReportRow]) -> list[ReportRow]:
     latest: dict[str, ReportRow] = {}
     for row in rows:
-        key = row.student_user_id or row.student_name.strip() or row.id
+        key = f"{row.student_user_id or row.student_name.strip() or row.id}:{row.stage_id or 'all'}"
         if key not in latest:
             latest[key] = row
     return list(latest.values())
@@ -344,6 +348,7 @@ def _course_from_row(row: CourseRow) -> Course:
         teacher_user_id=row.teacher_user_id,
         assignment_name=row.assignment_name,
         assignment_requirements=row.assignment_requirements,
+        assignment_spec=row.assignment_spec or {},
         created_at=row.created_at,
     )
 

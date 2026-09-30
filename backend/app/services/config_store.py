@@ -36,6 +36,7 @@ class FileConfigStore:
             dashscope_api_key_masked=_mask_key(api_key),
             dashscope_base_url=config.dashscope_base_url,
             dashscope_text_model=config.dashscope_text_model,
+            dashscope_code_model=config.dashscope_code_model,
             realtime_configured=bool(realtime_api_key),
             volc_realtime_api_key_masked=_mask_key(realtime_api_key),
             volc_realtime_model_version=(
@@ -52,6 +53,7 @@ class FileConfigStore:
             dashscope_base_url=config.dashscope_base_url.strip()
             or "https://dashscope.aliyuncs.com/compatible-mode/v1",
             dashscope_text_model=config.dashscope_text_model.strip() or "qwen-long",
+            dashscope_code_model=config.dashscope_code_model.strip() or "qwen3-coder-plus",
             volc_realtime_api_key=realtime_api_key,
             volc_realtime_model_version=(
                 config.volc_realtime_model_version.strip() or DEFAULT_REALTIME_MODEL_VERSION

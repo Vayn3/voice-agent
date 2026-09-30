@@ -767,3 +767,14 @@ code {
     min-width: 0;
   }
 }
+/* Inspectable stage criteria, code evidence and weighted assessment. */
+.lab-requirements details, .lab-assessment details {
+  margin: 12px 0;
+  border: 1px solid var(--border, #d7dfeb);
+  border-radius: 10px;
+  padding: 14px;
+}
+.lab-requirements summary, .lab-assessment summary { cursor: pointer; font-weight: 600; }
+.lab-assessment, .final-assessment { margin: 20px 0; overflow-wrap: anywhere; }
+.lab-assessment .brief-item { margin: 12px 0; }
+.final-assessment { padding: 18px; background: #f1f6fd; border-radius: 12px; color: #172b4d; }

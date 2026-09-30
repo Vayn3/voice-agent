@@ -51,6 +51,7 @@ class CourseRow(Base):
     teacher_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     assignment_name: Mapped[str] = mapped_column(String(160))
     assignment_requirements: Mapped[str] = mapped_column(Text)
+    assignment_spec: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     reports: Mapped[list["ReportRow"]] = relationship(back_populates="course")
@@ -81,6 +82,9 @@ class ReportRow(Base):
     assignment_requirements: Mapped[str] = mapped_column(Text, default="")
     original_filename: Mapped[str] = mapped_column(String(255))
     stored_path: Mapped[str] = mapped_column(String(500))
+    stage_id: Mapped[str] = mapped_column(String(32), default="all")
+    submission_files: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    assignment_spec: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     status: Mapped[AnalysisStatus] = mapped_column(Enum(AnalysisStatus), default=AnalysisStatus.pending)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
@@ -112,6 +116,8 @@ def init_database() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_compatible_schema()
     _seed_default_users()
+    from backend.app.course_catalog import seed_courses
+    seed_courses()
 
 
 def _ensure_database_exists() -> None:
@@ -135,6 +141,10 @@ def _ensure_database_exists() -> None:
 
 def _ensure_compatible_schema() -> None:
     statements = [
+        ("courses", "assignment_spec", "ALTER TABLE courses ADD COLUMN assignment_spec JSON NULL"),
+        ("reports", "stage_id", "ALTER TABLE reports ADD COLUMN stage_id VARCHAR(32) NOT NULL DEFAULT 'all'"),
+        ("reports", "submission_files", "ALTER TABLE reports ADD COLUMN submission_files JSON NULL"),
+        ("reports", "assignment_spec", "ALTER TABLE reports ADD COLUMN assignment_spec JSON NULL"),
         ("users", "password_hash", "ALTER TABLE users ADD COLUMN password_hash VARCHAR(64) NOT NULL DEFAULT ''"),
         ("users", "display_name", "ALTER TABLE users ADD COLUMN display_name VARCHAR(64) NOT NULL DEFAULT ''"),
         ("users", "role", "ALTER TABLE users ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'student'"),
